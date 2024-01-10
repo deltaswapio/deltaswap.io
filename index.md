@@ -1,4 +1,5 @@
 ---
+id: home-page
 layout: default
 ---
 
