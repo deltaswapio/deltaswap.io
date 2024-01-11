@@ -1,9 +1,10 @@
 import {planqToEth} from "./bech32-utils.js";
 import {ethers} from "./ethers-5.7.esm.min.js";
+import {evmosjs} from "./lib.js";
+
 
 let erc20TokensGlobal;
 let ibcTokensGlobal;
-
 
 window.onload = async () => {
     const chainId = "planq_7070-2";
@@ -23,7 +24,8 @@ window.onload = async () => {
     const evmAccount = planqToEth(accounts[0]["address"]);
     const pairs = await fetchTokenPairs();
     const erc20Tokens = await fetchErc20Tokens(evmAccount);
-    console.log(pairs)
+    const nativeTokens = await fetchNativeTokens(accounts[0]["address"]);
+    console.log(nativeTokens)
 
     constructConversionTable(pairs);
     constructErc20Table(erc20Tokens);
@@ -57,6 +59,21 @@ async function fetchErc20Tokens(address) {
     const url = "https://evm.planq.network/api?module=account&action=tokenlist&address=" + address;
     const resp = await fetch(url);
     const json = await resp.json();
+    if (json["result"].length < 1) {
+        return
+    }
+    erc20TokensGlobal = json["result"]
+    return json
+}
+
+async function fetchNativeTokens(address) {
+    const url = "https://rest.planq.network/cosmos/bank/v1beta1/balances/" + address;
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json["balances"].length < 1) {
+        return
+    }
+    ibcTokensGlobal = json["balances"]
     return json
 }
 
@@ -73,7 +90,7 @@ function constructErc20Table(erc20Tokens) {
     }
 
     const erc20Table = document.querySelector("#erc20-table");
-    erc20TokensGlobal = erc20Tokens["result"]
+
     console.log(erc20Tokens)
     for (let i = 0; i < erc20Tokens["result"].length; i++) {
         const row = document.createElement("tr");
@@ -104,6 +121,9 @@ function constructErc20Table(erc20Tokens) {
 }
 
 function constructConversionTable(pairs) {
+    if (pairs["pagination"].total < 1) {
+        return
+    }
     const convertTable = document.querySelector("#convert-table");
     for (let i = 0; i < pairs["pagination"].total; i++) {
         // creates a table row
@@ -189,6 +209,7 @@ function fetchErc20Balance(address) {
 }
 
 function fetchIBCBalance(address) {
+    "/cosmos/bank/v1beta1/balances/"+address
     return 0;
 }
 
@@ -213,10 +234,26 @@ function addGovernanceModalErc20(id) {
         '      </div>\n' +
         '      <div class="modal-footer">\n' +
         '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>\n' +
-        '        <button type="button" class="btn btn-primary">Create</button>\n' +
+        '        <button type="button" id="erc20CreateGovProposal'+id+'" class="btn btn-primary">Create</button>\n' +
         '      </div>\n' +
         '    </div>\n' +
         '  </div>\n' +
         '</div>')
+
+    const erc20CreateGovProposalButton = document.getElementById("erc20CreateGovProposal" + id)
+    erc20CreateGovProposalButton.addEventListener('click', function() {
+        createGovProposalRegisterErc20(id);
+    });
+}
+
+function createGovProposalRegisterErc20(id) {
+    const currentErc20Token = erc20TokensGlobal[id];
+    const erc20Address = currentErc20Token["contractAddress"];
+    const name = currentErc20Token["name"];
+
+    evmosjs.createMsgRegisterERC20("Register ERC20 ("+name+") for Conversion", "This proposal will register "+name+" which is located at address "+erc20Address+" for IBC/ERC20 conversion", erc20Address);
+}
+
+function createGovProposalRegisterIBC(id) {
 
 }
