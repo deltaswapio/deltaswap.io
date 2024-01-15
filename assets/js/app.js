@@ -1,7 +1,30 @@
 import {planqToEth} from "./bech32-utils.js";
 import {ethers} from "./ethers-5.7.esm.min.js";
-import {evmosjs} from "./lib.js";
+import "./lib.js";
 
+const evmosjs = window.evmosjs.Evmosjs
+
+
+const chain = {
+    chainId: 7070,
+    cosmosChainId: 'planq_7070-2',
+}
+
+const memo = "DeltaSwap.io Convert"
+
+const fee = {
+    amount: '8000000000000000',
+    denom: 'aplanq',
+    gas: '800000',
+}
+
+const createTxParams = {
+    memo: memo,
+    fee: fee,
+    gasLimit: 8000000,
+    sequence: 10,
+    accountNumber: 20,
+}
 
 let erc20TokensGlobal;
 let ibcTokensGlobal;
@@ -26,6 +49,7 @@ window.onload = async () => {
     const erc20Tokens = await fetchErc20Tokens(evmAccount);
     const nativeTokens = await fetchNativeTokens(accounts[0]["address"]);
     console.log(nativeTokens)
+
 
     constructConversionTable(pairs);
     constructErc20Table(erc20Tokens);
@@ -250,10 +274,35 @@ function createGovProposalRegisterErc20(id) {
     const currentErc20Token = erc20TokensGlobal[id];
     const erc20Address = currentErc20Token["contractAddress"];
     const name = currentErc20Token["name"];
-
-    evmosjs.createMsgRegisterERC20("Register ERC20 ("+name+") for Conversion", "This proposal will register "+name+" which is located at address "+erc20Address+" for IBC/ERC20 conversion", erc20Address);
+    const title = "Register ERC20 ("+name+") for Conversion";
+    const description = "This proposal will register "+name+" which is located at address "+erc20Address+" for IBC/ERC20 conversion";
+    const msg = evmosjs.proto.createMsgRegisterERC20(title, description, erc20Address);
+    prepareMsgForBroadcast(msg)
 }
 
-function createGovProposalRegisterIBC(id) {
+function createGovProposalRegisterIBC(id, metadataDescription, completeName, displayName, symbol, denomUnits) {
+    const currentIBCToken = ibcTokensGlobal[id];
+    const ibcDenom = currentIBCToken["denom"];
+    const title = "Register IBC Token ("+name+") for Conversion";
+    const description = "This proposal will register "+name+" which is located at address "+ibcDenom+" for IBC/ERC20 conversion";
+    const uri = ''
+    const uriHash = ''
+    const metadata = new evmosjs.proto.Metadata({
+        description: metadataDescription,
+        denomUnits,
+        base: ibcDenom,
+        display: displayName,
+        name: completeName,
+        symbol,
+        uri,
+        uriHash,
+    })
+    const msg = evmosjs.proto.createMsgRegisterCoin(title, description, [metadata])
+    prepareMsgForBroadcast(msg)
+
+}
+
+function prepareMsgForBroadcast(msg) {
+    const msgWrapped = evmosjs.proto.createAnyMessage(msg)
 
 }
