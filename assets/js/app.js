@@ -28,13 +28,14 @@ const createTxParams = {
 
 let erc20TokensGlobal;
 let ibcTokensGlobal;
+let currentAddress;
 
 window.onload = async () => {
     const chainId = "planq_7070-2";
     const response = await fetch("http://127.0.0.1:4000/assets/planq_7070.json")
     const planqJson = await response.json()
 
-    const respe = await window.keplr.experimentalSuggestChain( planqJson )
+    await window.keplr.experimentalSuggestChain( planqJson )
     await window.keplr.enable(chainId);
 
     const offlineSigner = window.getOfflineSigner(chainId);
@@ -44,17 +45,15 @@ window.onload = async () => {
     // But, currently, Keplr extension manages only one address/public key pair.
     // XXX: This line is needed to set the sender address for SigningCosmosClient.
     const accounts = await offlineSigner.getAccounts();
+    currentAddress = accounts[0]["address"];
     const evmAccount = planqToEth(accounts[0]["address"]);
     const pairs = await fetchTokenPairs();
     const erc20Tokens = await fetchErc20Tokens(evmAccount);
     const nativeTokens = await fetchNativeTokens(accounts[0]["address"]);
-    console.log(nativeTokens)
-
 
     constructConversionTable(pairs);
     constructErc20Table(erc20Tokens);
     activateTooltips();
-
 };
 
 function activateTooltips() {
@@ -206,11 +205,11 @@ function addGovButton(id, erc20Token) {
     addGovernanceModalErc20(id)
     const govButton = document.createElement("button")
     govButton.className = "btn btn-sm ms-1"
-    /*if(balance > 0.0) {
+    if(!isGovProposalErc20Running(id)) {
         convertButton.className = "btn btn-sm ms-1"
     } else {
         convertButton.className = "btn btn-sm disabled ms-1"
-    }*/
+    }
     govButton.dataset.bsToggle = "modal"
     govButton.dataset.bsTarget = "#erc20Modal"+id
     govButton.textContent = "Apply for Conversion";
@@ -228,11 +227,18 @@ function addConvertButton(address, balance) {
     return convertButton
 }
 
+function isGovProposalErc20Running(id) {
+    // TODO: IMPLEMENT ME
+    return false
+}
+
 function fetchErc20Balance(address) {
+    // TODO: IMPLEMENT ME
     return 123.0000001;
 }
 
 function fetchIBCBalance(address) {
+    // TODO: IMPLEMENT ME
     "/cosmos/bank/v1beta1/balances/"+address
     return 0;
 }
@@ -297,12 +303,30 @@ function createGovProposalRegisterIBC(id, metadataDescription, completeName, dis
         uri,
         uriHash,
     })
-    const msg = evmosjs.proto.createMsgRegisterCoin(title, description, [metadata])
-    prepareMsgForBroadcast(msg)
+    const msg = evmosjs.proto.createMsgRegisterCoin(title, description, [metadata]);
+    prepareMsgForBroadcast(msg);
+}
 
+function convertErc20(id) {
+    const currentErc20Token = erc20TokensGlobal[id];
+    const erc20Address = currentErc20Token["contractAddress"];
+    const decimals = currentErc20Token["decimals"];
+    const balance = currentErc20Token["balance"];
+    const name = currentErc20Token["name"];
+    const msg = evmosjs.proto.createMsgConvertERC20(erc20Address, balance, currentAddress, currentAddress)
+    prepareMsgForBroadcast(msg);
+}
+
+function convertIBC(id) {
+    const currentIBCToken = ibcTokensGlobal[id];
+    const ibcDenom = currentIBCToken["denom"];
+    const balance = currentIBCToken["amount"];
+    const msg = evmosjs.proto.createMsgConvertCoin(ibcDenom, balance, currentAddress, currentAddress)
+    prepareMsgForBroadcast(msg);
 }
 
 function prepareMsgForBroadcast(msg) {
+    // TODO: IMPLEMENT ME
     const msgWrapped = evmosjs.proto.createAnyMessage(msg)
 
 }
