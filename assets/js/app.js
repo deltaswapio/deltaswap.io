@@ -18,48 +18,69 @@ const fee = {
     gas: '800000',
 }
 
-const createTxParams = {
+let txParams = {
+    chain: chain,
     memo: memo,
     fee: fee,
     gasLimit: 8000000,
-    sequence: 10,
-    accountNumber: 20,
+    sequence: 0,
+    accountNumber: 0,
 }
 
 let erc20TokensGlobal;
 let ibcTokensGlobal;
 let currentAddress;
+let currentEvmAccount;
 
 window.onload = async () => {
-    const chainId = "planq_7070-2";
     const response = await fetch("http://127.0.0.1:4000/assets/planq_7070.json")
     const planqJson = await response.json()
+    if(window.keplr !== undefined) {
+        window.wallet = window.keplr
+    } else if (window.leap !== undefined) {
+        window.wallet = window.leap
+    }
+    await window.wallet.experimentalSuggestChain( planqJson )
+    await window.wallet.enable(chain.cosmosChainId);
 
-    await window.keplr.experimentalSuggestChain( planqJson )
-    await window.keplr.enable(chainId);
+    // prepare the account
+    await updateAccount();
 
-    const offlineSigner = window.getOfflineSigner(chainId);
-
-    // You can get the address/public keys by `getAccounts` method.
-    // It can return the array of address/public key.
-    // But, currently, Keplr extension manages only one address/public key pair.
-    // XXX: This line is needed to set the sender address for SigningCosmosClient.
-    const accounts = await offlineSigner.getAccounts();
-    currentAddress = accounts[0]["address"];
-    const evmAccount = planqToEth(accounts[0]["address"]);
+    // fetch available token pairs & erc20 / ibc balances
     const pairs = await fetchTokenPairs();
-    const erc20Tokens = await fetchErc20Tokens(evmAccount);
-    const nativeTokens = await fetchNativeTokens(accounts[0]["address"]);
+    const erc20Tokens = await fetchErc20Tokens(currentEvmAccount);
+    const nativeTokens = await fetchNativeTokens(currentAddress);
 
+    // construct conversion tables
     constructConversionTable(pairs);
     constructErc20Table(erc20Tokens);
     activateTooltips();
+
+    window.addEventListener("leap_keystorechange", () => {
+        location.reload()
+    })
+
+    window.addEventListener("keplr_keystorechange", () => {
+        location.reload()
+    })
 };
+
+async function updateAccount() {
+    const offlineSigner = window.getOfflineSigner(chain.cosmosChainId);
+    const accounts = await offlineSigner.getAccounts();
+    currentAddress = accounts[0]["address"];
+    const pubKey = await window.wallet.getKey(chain.cosmosChainId);
+    const account = await fetchAccount(currentAddress, pubKey.pubKey);
+    currentEvmAccount = planqToEth(accounts[0]["address"]);
+    txParams.sequence = account.sequence;
+    txParams.accountNumber = account.accountNumber;
+    txParams.sender = account
+}
 
 function activateTooltips() {
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl)
+        return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 }
 
@@ -77,35 +98,6 @@ var truncate = function (fullStr, strLen, separator) {
         separator +
         fullStr.substr(fullStr.length - backChars);
 };
-
-async function fetchErc20Tokens(address) {
-    const url = "https://evm.planq.network/api?module=account&action=tokenlist&address=" + address;
-    const resp = await fetch(url);
-    const json = await resp.json();
-    if (json["result"].length < 1) {
-        return
-    }
-    erc20TokensGlobal = json["result"]
-    return json
-}
-
-async function fetchNativeTokens(address) {
-    const url = "https://rest.planq.network/cosmos/bank/v1beta1/balances/" + address;
-    const resp = await fetch(url);
-    const json = await resp.json();
-    if (json["balances"].length < 1) {
-        return
-    }
-    ibcTokensGlobal = json["balances"]
-    return json
-}
-
-async function fetchTokenPairs() {
-    const url = "https://rest.evmos-testnet.lava.build/evmos/erc20/v1/token_pairs";
-    const resp = await fetch(url);
-    const json = await resp.json();
-    return json
-}
 
 function constructErc20Table(erc20Tokens) {
     if (erc20Tokens["result"].length < 1) {
@@ -125,21 +117,26 @@ function constructErc20Table(erc20Tokens) {
         const name = currentErc20Token["name"];
         const erc20Balance = ethers.utils.formatUnits(balance, decimals);
 
+        const cellNameErc20 = document.createElement("td");
+        const cellNameTextErc20 = document.createTextNode(name);
         const cellErc20 = document.createElement("td");
-        const cellTextErc20 = document.createTextNode(erc20Address,15);
+        const cellTextErc20 = document.createTextNode(truncate(erc20Address,15));
+
         const cellBalanceErc20 = document.createElement("td");
         const cellBalanceTextErc20 = document.createTextNode(erc20Balance);
         const cellGov = document.createElement("td");
 
-        cellGov.appendChild(addGovButton(i, currentErc20Token))
+        cellGov.appendChild(addGovButton(i, currentErc20Token));
         cellErc20.appendChild(cellTextErc20);
+        cellNameErc20.appendChild(cellNameTextErc20);
         cellBalanceErc20.appendChild(cellBalanceTextErc20);
 
+        row.appendChild(cellNameErc20);
         row.appendChild(cellErc20);
         row.appendChild(cellBalanceErc20);
         row.appendChild(cellGov);
 
-        erc20Table.children[0].appendChild(row);
+        erc20Table.children[1].appendChild(row);
     }
 }
 
@@ -197,18 +194,17 @@ function constructConversionTable(pairs) {
 
 
         // add the row to the end of the table body
-        convertTable.children[0].appendChild(row);
+        convertTable.children[1].appendChild(row);
     }
 }
 
 function addGovButton(id, erc20Token) {
     addGovernanceModalErc20(id)
     const govButton = document.createElement("button")
-    govButton.className = "btn btn-sm ms-1"
     if(!isGovProposalErc20Running(id)) {
-        convertButton.className = "btn btn-sm ms-1"
+        govButton.className = "btn btn-sm ms-1"
     } else {
-        convertButton.className = "btn btn-sm disabled ms-1"
+        govButton.className = "btn btn-sm disabled ms-1"
     }
     govButton.dataset.bsToggle = "modal"
     govButton.dataset.bsTarget = "#erc20Modal"+id
@@ -232,14 +228,67 @@ function isGovProposalErc20Running(id) {
     return false
 }
 
+
+async function fetchErc20Tokens(address) {
+    const url = "https://evm.planq.network/api?module=account&action=tokenlist&address=" + address;
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json["result"].length < 1) {
+        return
+    }
+    erc20TokensGlobal = json["result"]
+    return json
+}
+
+async function fetchNativeTokens(address) {
+    const url = "https://rest.planq.network/cosmos/bank/v1beta1/balances/" + address;
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json["balances"].length < 1) {
+        return
+    }
+    ibcTokensGlobal = json["balances"]
+    return json
+}
+
+async function fetchTokenPairs() {
+    const url = "https://rest.evmos-testnet.lava.build/evmos/erc20/v1/token_pairs";
+    const resp = await fetch(url);
+    const json = await resp.json();
+    return json
+}
+
+async function fetchAccount(address, pubKey) {
+    const url = "https://rest.planq.network/cosmos/auth/v1beta1/accounts/" + address;
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json["account"].length < 1) {
+        return
+    }
+    const sender = {
+        accountAddress: address,
+        sequence: json.account.base_account.sequence,
+        accountNumber: json.account.base_account.account_number,
+        pubkey: json.account.base_account.pub_key?.key || pubKey,
+    }
+    return sender
+}
+
 function fetchErc20Balance(address) {
-    // TODO: IMPLEMENT ME
-    return 123.0000001;
+    for (var i = 0; i < erc20TokensGlobal.length; i++) {
+        if (erc20TokensGlobal[i]["contractAddress"] == address) {
+            return erc20TokensGlobal[i]["balance"]
+        }
+    }
+    return 0;
 }
 
 function fetchIBCBalance(address) {
-    // TODO: IMPLEMENT ME
-    "/cosmos/bank/v1beta1/balances/"+address
+    for (var i = 0; i < ibcTokensGlobal.length; i++) {
+        if (ibcTokensGlobal[i]["denom"] == address) {
+            return ibcTokensGlobal[i]["amount"]
+        }
+    }
     return 0;
 }
 
@@ -325,8 +374,44 @@ function convertIBC(id) {
     prepareMsgForBroadcast(msg);
 }
 
-function prepareMsgForBroadcast(msg) {
-    // TODO: IMPLEMENT ME
-    const msgWrapped = evmosjs.proto.createAnyMessage(msg)
+async function prepareMsgForBroadcast(msg) {
 
+    const tx = evmosjs.transactions.createTransactionPayload(txParams, msg, msg)
+
+    const signedTx = await window.wallet.signDirect(chain.cosmosChainId, currentAddress,
+        {
+            bodyBytes: tx.signDirect.body.toBinary(),
+            authInfoBytes: tx.signDirect.authInfo.toBinary(),
+            chainId: chain.cosmosChainId,
+            accountNumber: txParams.accountNumber
+        }
+    )
+    const sendTx = await window.wallet.sendTx(chain.cosmosChainId, signedTx, "sync");
+}
+
+async function signTransaction(
+    wallet,
+    tx,
+    broadcastMode = 'BROADCAST_MODE_BLOCK',
+) {
+    const dataToSign = `0x${Buffer.from(
+        tx.signDirect.signBytes,
+        'base64',
+    ).toString('hex')}`
+
+    /* eslint-disable no-underscore-dangle */
+    const signatureRaw = wallet._signingKey().signDigest(dataToSign)
+    const splitedSignature = splitSignature(signatureRaw)
+    const signature = arrayify(concat([splitedSignature.r, splitedSignature.s]))
+
+    const signedTx = createTxRaw(
+        tx.signDirect.body.serializeBinary(),
+        tx.signDirect.authInfo.serializeBinary(),
+        [signature],
+    )
+    const body = `{ "tx_bytes": [${signedTx.message
+        .serializeBinary()
+        .toString()}], "mode": "${broadcastMode}" }`
+
+    return body
 }

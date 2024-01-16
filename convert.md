@@ -34,12 +34,13 @@ permalink: /convert
     <table class="table table-responsive" id="erc20-table">
       <thead>
         <tr>
+          <th scope="col">Name</th>
           <th scope="col">ERC20</th>
           <th scope="col">ERC20 Balance</th>
           <th scope="col">Actions</th>
         </tr>
       </thead>
-    <tbody></tbody>
+      <tbody></tbody>
     </table>
   </div>
   <div class="tab-pane fade" id="ibc" role="tabpanel" aria-labelledby="ibc-tab">
