@@ -247,6 +247,11 @@ async function fetchNativeTokens(address) {
     if (json["balances"].length < 1) {
         return
     }
+    else {
+        for(var i = 0; i < json["balances"].length; i++) {
+            json["balances"][i]["base_denom"] = await fetchBaseDenom(json["balances"][i]["denom"]);
+        }
+    }
     ibcTokensGlobal = json["balances"]
     return json
 }
@@ -272,6 +277,17 @@ async function fetchAccount(address, pubKey) {
         pubkey: json.account.base_account.pub_key?.key || pubKey,
     }
     return sender
+}
+
+async function fetchBaseDenom(address) {
+    address = addres.replace("ibc/", "")
+    const url = "https://rest.planq.network/ibc/apps/transfer/v1/denom_traces/"+address
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if(json["denom_trace".length < 1]) {
+        return ""
+    }
+    return json
 }
 
 function fetchErc20Balance(address) {
@@ -335,20 +351,79 @@ function createGovProposalRegisterErc20(id) {
     prepareMsgForBroadcast(msg)
 }
 
+function addGovernanceModalIBC(id) {
+    const currentIBCToken = ibcTokensGlobal[id];
+    const ibcAddress = currentIBCToken["denom"];
+    const ibcBaseDenom = currentIBCToken["base_denom"];
+    const balance = currentIBCToken["amount"];
+
+    window.document.body.insertAdjacentHTML('beforeend','<div class="modal fade" id="ibcModal'+id+'" tabindex="-1" aria-labelledby="ibcModalLabel" aria-hidden="true">\n' +
+        '  <div class="modal-dialog">\n' +
+        '    <div class="modal-content">\n' +
+        '      <div class="modal-header">\n' +
+        '        <h5 class="modal-title" id="ibcModalLabel">Create IBC Conversion Proposal</h5>\n' +
+        '        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>\n' +
+        '      </div>\n' +
+        '      <div class="modal-body">\n' +
+        '        <p>This will create a IBC conversion proposal</p>\n' +
+        '        <p>The address is '+ibcAddress+'</p>\n' +
+        '        <p>To continue fill out the form and click create.</p>\n' +
+        '        <form id="ibcCreateGovForm'+id+'">\n' +
+        '           <input type="text" name="baseDenom" value="'+ibcBaseDenom+'" disabled="" />'+
+        '           <input type="text" name="baseDenomUnits" value="0" disabled="" />'+
+        '           <input type="text" name="displayDenom" placeholder="osmo" />'+
+        '           <input type="text" name="displayUnits" placeholder="6" />'+
+        '           <input type="text" name="displayName" placeholder="OSMO" />'+
+        '           <input type="text" name="symbol" placeholder="OSMO" />'+
+        '           <input type="text" name="description" placeholder="The native staking and governance token of the Osmosis chain" />'+
+        '        </form>\n' +
+        '      </div>\n' +
+        '      <div class="modal-footer">\n' +
+        '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>\n' +
+        '        <button type="button" id="ibcCreateGovProposal'+id+'" class="btn btn-primary">Create</button>\n' +
+        '      </div>\n' +
+        '    </div>\n' +
+        '  </div>\n' +
+        '</div>')
+
+    const ibcCreateGovProposalButton = document.getElementById("ibcCreateGovProposal" + id)
+    ibcCreateGovProposalButton.addEventListener('click', function() {
+        const govForm = document.getElementById("ibcCreateGovForm"+id);
+        const displayName = govForm.getElementsByName("displayName")[0];
+        const displayDenom = govForm.getElementsByName("displayDenom")[0];
+        const displayUnits = govForm.getElementsByName("displayUnits")[0];
+        const symbol = govForm.getElementsByName("symbol")[0];
+        const description = govForm.getElementsByName("description")[0];
+        const denomUnits =
+            [
+                {
+                    "denom": ibcAddress,
+                    "exponent": 0,
+                    "aliases": [ibcBaseDenom]
+                },
+                {
+                    "denom": displayDenom,
+                    "exponent": displayUnits
+                }
+            ]
+        createGovProposalRegisterIBC(id, description, displayName, symbol, denomUnits);
+    });
+}
+
 function createGovProposalRegisterIBC(id, metadataDescription, completeName, displayName, symbol, denomUnits) {
     const currentIBCToken = ibcTokensGlobal[id];
     const ibcDenom = currentIBCToken["denom"];
-    const title = "Register IBC Token ("+name+") for Conversion";
-    const description = "This proposal will register "+name+" which is located at address "+ibcDenom+" for IBC/ERC20 conversion";
+    const title = "Register IBC Token ("+displayName+") for Conversion";
+    const description = "This proposal will register "+displayName+" which is located at address "+ibcDenom+" for IBC/ERC20 conversion";
     const uri = ''
     const uriHash = ''
     const metadata = new evmosjs.proto.Metadata({
         description: metadataDescription,
-        denomUnits,
+        denomUnits: denomUnits,
         base: ibcDenom,
         display: displayName,
         name: completeName,
-        symbol,
+        symbol: symbol,
         uri,
         uriHash,
     })
