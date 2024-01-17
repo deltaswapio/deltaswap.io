@@ -140,6 +140,24 @@ function constructErc20Table(erc20Tokens) {
     }
 }
 
+function getIBCID(address) {
+    for(var i = 0; i < ibcTokensGlobal.length; i++) {
+        if(address == ibcTokensGlobal[i]["denom"]) {
+            return id;
+        }
+    }
+    return -1;
+}
+
+function getErc20ID(address) {
+    for(var i = 0; i < erc20TokensGlobal; i++) {
+        if(address == erc20TokensGlobal[i]["contractAddress"]) {
+            return id;
+        }
+    }
+    return -1;
+}
+
 function constructConversionTable(pairs) {
     if (pairs["pagination"].total < 1) {
         return
@@ -170,7 +188,7 @@ function constructConversionTable(pairs) {
         cellTooltipErc20.appendChild(cellTextErc20);
         cellErc20.appendChild(cellTooltipErc20);
         cellBalanceErc20.appendChild(cellBalanceTextErc20);
-        cellBalanceErc20.appendChild(addConvertButton(erc20Address, erc20Balance));
+        cellBalanceErc20.appendChild(addConvertButton(getErc20ID(erc20Address)));
 
         const cellIBC = document.createElement("td");
         const cellTextIBC = document.createTextNode(truncate(ibcDenom,15));
@@ -185,7 +203,7 @@ function constructConversionTable(pairs) {
         cellTooltipIBC.appendChild(cellTextIBC);
         cellIBC.appendChild(cellTooltipIBC);
         cellBalanceIBC.appendChild(cellBalanceTextIBC);
-        cellBalanceIBC.appendChild(addConvertButton(ibcDenom, ibcBalance));
+        cellBalanceIBC.appendChild(addConvertButton(getIBCID(ibcDenom)));
 
         row.appendChild(cellErc20);
         row.appendChild(cellBalanceErc20);
@@ -212,10 +230,18 @@ function addGovButton(id, erc20Token) {
     return govButton
 }
 
-function addConvertButton(address, balance) {
-    const convertButton = document.createElement("button")
+function addConvertButton(id) {
+    const convertButton = document.createElement("button");
+
     if(balance > 0.0) {
         convertButton.className = "btn btn-sm ms-1"
+        convertButton.addEventListener('click', function() {
+            if(address.includes("ibc")) {
+                convertIBC(id);
+            } else {
+                convertErc20(id);
+            }
+        });
     } else {
         convertButton.className = "btn btn-sm disabled ms-1"
     }
@@ -462,31 +488,4 @@ async function prepareMsgForBroadcast(msg) {
         }
     )
     const sendTx = await window.wallet.sendTx(chain.cosmosChainId, signedTx, "sync");
-}
-
-async function signTransaction(
-    wallet,
-    tx,
-    broadcastMode = 'BROADCAST_MODE_BLOCK',
-) {
-    const dataToSign = `0x${Buffer.from(
-        tx.signDirect.signBytes,
-        'base64',
-    ).toString('hex')}`
-
-    /* eslint-disable no-underscore-dangle */
-    const signatureRaw = wallet._signingKey().signDigest(dataToSign)
-    const splitedSignature = splitSignature(signatureRaw)
-    const signature = arrayify(concat([splitedSignature.r, splitedSignature.s]))
-
-    const signedTx = createTxRaw(
-        tx.signDirect.body.serializeBinary(),
-        tx.signDirect.authInfo.serializeBinary(),
-        [signature],
-    )
-    const body = `{ "tx_bytes": [${signedTx.message
-        .serializeBinary()
-        .toString()}], "mode": "${broadcastMode}" }`
-
-    return body
 }
