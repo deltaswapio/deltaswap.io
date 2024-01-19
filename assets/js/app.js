@@ -1,13 +1,14 @@
 import {planqToEth} from "./bech32-utils.js";
 import {ethers} from "./ethers-5.7.esm.min.js";
+import { Base64Binary } from "./base64-binary.js";
 import "./lib.js";
 
 const evmosjs = window.evmosjs.Evmosjs
-
+const buf = window.buf
 
 const chain = {
     chainId: 7070,
-    cosmosChainId: 'planq_7070-2',
+    cosmosChainId: 'planq_7071-1',
 }
 
 const memo = "DeltaSwap.io Convert"
@@ -33,7 +34,7 @@ let currentAddress;
 let currentEvmAccount;
 
 window.onload = async () => {
-    const response = await fetch("http://127.0.0.1:4000/assets/planq_7070.json")
+    const response = await fetch("http://127.0.0.1:4000/assets/planq_7071.json")
     const planqJson = await response.json()
     if(window.keplr !== undefined) {
         window.wallet = window.keplr
@@ -141,9 +142,10 @@ function constructErc20Table(erc20Tokens) {
 }
 
 function getIBCID(address) {
+    console.log(address)
     for(var i = 0; i < ibcTokensGlobal.length; i++) {
-        if(address == ibcTokensGlobal[i]["denom"]) {
-            return id;
+        if(address === ibcTokensGlobal[i]["denom"]) {
+            return i;
         }
     }
     return -1;
@@ -152,7 +154,7 @@ function getIBCID(address) {
 function getErc20ID(address) {
     for(var i = 0; i < erc20TokensGlobal; i++) {
         if(address == erc20TokensGlobal[i]["contractAddress"]) {
-            return id;
+            return i;
         }
     }
     return -1;
@@ -188,7 +190,7 @@ function constructConversionTable(pairs) {
         cellTooltipErc20.appendChild(cellTextErc20);
         cellErc20.appendChild(cellTooltipErc20);
         cellBalanceErc20.appendChild(cellBalanceTextErc20);
-        cellBalanceErc20.appendChild(addConvertButton(getErc20ID(erc20Address)));
+        cellBalanceErc20.appendChild(addConvertButton(getErc20ID(erc20Address), erc20Address, erc20Balance));
 
         const cellIBC = document.createElement("td");
         const cellTextIBC = document.createTextNode(truncate(ibcDenom,15));
@@ -203,7 +205,7 @@ function constructConversionTable(pairs) {
         cellTooltipIBC.appendChild(cellTextIBC);
         cellIBC.appendChild(cellTooltipIBC);
         cellBalanceIBC.appendChild(cellBalanceTextIBC);
-        cellBalanceIBC.appendChild(addConvertButton(getIBCID(ibcDenom)));
+        cellBalanceIBC.appendChild(addConvertButton(getIBCID(ibcDenom), ibcDenom, ibcBalance));
 
         row.appendChild(cellErc20);
         row.appendChild(cellBalanceErc20);
@@ -230,7 +232,7 @@ function addGovButton(id, erc20Token) {
     return govButton
 }
 
-function addConvertButton(id) {
+function addConvertButton(id, address, balance) {
     const convertButton = document.createElement("button");
 
     if(balance > 0.0) {
@@ -258,7 +260,11 @@ function isGovProposalErc20Running(id) {
 async function fetchErc20Tokens(address) {
     const url = "https://evm.planq.network/api?module=account&action=tokenlist&address=" + address;
     const resp = await fetch(url);
-    const json = await resp.json();
+    let json = await resp.json();
+    json["result"][0]["contractAddress"] = "0xfF484c332B12c1212805e821fBbA65673b67fF02";
+    json["result"][0]["decimals"] = "18";
+    json["result"][0]["balance"] = "10000";
+    json["result"][0]["name"] = "Test";
     if (json["result"].length < 1) {
         return
     }
@@ -267,7 +273,7 @@ async function fetchErc20Tokens(address) {
 }
 
 async function fetchNativeTokens(address) {
-    const url = "https://rest.planq.network/cosmos/bank/v1beta1/balances/" + address;
+    const url = "http://192.168.178.32:1317/cosmos/bank/v1beta1/balances/" + address;
     const resp = await fetch(url);
     const json = await resp.json();
     if (json["balances"].length < 1) {
@@ -275,6 +281,9 @@ async function fetchNativeTokens(address) {
     }
     else {
         for(var i = 0; i < json["balances"].length; i++) {
+            if(json["balances"][i]["denom"] == "aplanq") {
+                continue
+            }
             json["balances"][i]["base_denom"] = await fetchBaseDenom(json["balances"][i]["denom"]);
         }
     }
@@ -283,14 +292,14 @@ async function fetchNativeTokens(address) {
 }
 
 async function fetchTokenPairs() {
-    const url = "https://rest.evmos-testnet.lava.build/evmos/erc20/v1/token_pairs";
+    const url = "http://192.168.178.32:1317/evmos/erc20/v1/token_pairs";
     const resp = await fetch(url);
     const json = await resp.json();
     return json
 }
 
 async function fetchAccount(address, pubKey) {
-    const url = "https://rest.planq.network/cosmos/auth/v1beta1/accounts/" + address;
+    const url = "http://192.168.178.32:1317/cosmos/auth/v1beta1/accounts/" + address;
     const resp = await fetch(url);
     const json = await resp.json();
     if (json["account"].length < 1) {
@@ -306,8 +315,11 @@ async function fetchAccount(address, pubKey) {
 }
 
 async function fetchBaseDenom(address) {
-    address = addres.replace("ibc/", "")
-    const url = "https://rest.planq.network/ibc/apps/transfer/v1/denom_traces/"+address
+    address = address.replace("ibc/", "")
+    if(address.includes("erc20")) {
+        return ""
+    }
+    const url = "http://192.168.178.32:1317/ibc/apps/transfer/v1/denom_traces/"+address
     const resp = await fetch(url);
     const json = await resp.json();
     if(json["denom_trace".length < 1]) {
@@ -372,9 +384,44 @@ function createGovProposalRegisterErc20(id) {
     const erc20Address = currentErc20Token["contractAddress"];
     const name = currentErc20Token["name"];
     const title = "Register ERC20 ("+name+") for Conversion";
+    const titleToggle = "Toggle ERC20 ("+name+") for Conversion";
     const description = "This proposal will register "+name+" which is located at address "+erc20Address+" for IBC/ERC20 conversion";
+    const descriptionToggle = "This proposal will enable the conversion toggle for "+name+" which is located at address "+erc20Address;
     const msg = evmosjs.proto.createMsgRegisterERC20(title, description, erc20Address);
+    //console.log(msg)
     prepareMsgForBroadcast(msg)
+
+
+    //const toggleTokenConversionMsg = createMsgToggleTokenConversion(titleToggle, descriptionToggle, erc20Address);
+    //console.log(toggleTokenConversionMsg)
+    //prepareMsgForBroadcast(toggleTokenConversionMsg)
+}
+
+function createMsgToggleTokenConversion(title, description, address) {
+
+    const toggleTokenConversionProto = {
+    typeUrl : "/evmos.erc20.v1.ToggleTokenConversionProposal",
+    value : {
+        title: title,
+        description : description,
+        address : address
+        }
+    }
+    let ar = [];
+    ar[0] = new TextEncoder().encode(title);
+    ar[1] = new TextEncoder().encode(description);
+    ar[2] = new TextEncoder().encode(address);
+    //proto =  proto.fromJsonString(toggleTokenConversionProto)
+    console.log(  Uint8Array.from(ar))
+    toggleTokenConversionProto.value = new TextEncoder().encode(JSON.stringify(toggleTokenConversionProto.value))
+    const msg = evmosjs.proto.createMsgSubmitProposal(toggleTokenConversionProto, "aplanq", 0, currentAddress);
+   // const msg = evmosjs.proto.createAnyMessage(prop);
+
+    /*return {
+        msg: toggleTokenConversionProto,
+        type: evmosjs.proto.ToggleTokenConversionProposal.typeName
+    };*/
+    return msg;
 }
 
 function addGovernanceModalIBC(id) {
@@ -440,7 +487,9 @@ function createGovProposalRegisterIBC(id, metadataDescription, completeName, dis
     const currentIBCToken = ibcTokensGlobal[id];
     const ibcDenom = currentIBCToken["denom"];
     const title = "Register IBC Token ("+displayName+") for Conversion";
+    const titleToggle = "Toggle IBC Token ("+displayName+") for Conversion";
     const description = "This proposal will register "+displayName+" which is located at address "+ibcDenom+" for IBC/ERC20 conversion";
+    const descriptionToggle = "This proposal will enable the conversion toggle for "+displayName+" which is located at address "+ibcDenom;
     const uri = ''
     const uriHash = ''
     const metadata = new evmosjs.proto.Metadata({
@@ -455,15 +504,18 @@ function createGovProposalRegisterIBC(id, metadataDescription, completeName, dis
     })
     const msg = evmosjs.proto.createMsgRegisterCoin(title, description, [metadata]);
     prepareMsgForBroadcast(msg);
+
+    const toggleTokenConversionMsg = createMsgToggleTokenConversion(titleToggle, descriptionToggle, ibcDenom);
+    prepareMsgForBroadcast(toggleTokenConversionMsg)
 }
 
 function convertErc20(id) {
-    const currentErc20Token = erc20TokensGlobal[id];
+    const currentErc20Token = erc20TokensGlobal[0];
     const erc20Address = currentErc20Token["contractAddress"];
     const decimals = currentErc20Token["decimals"];
     const balance = currentErc20Token["balance"];
     const name = currentErc20Token["name"];
-    const msg = evmosjs.proto.createMsgConvertERC20(erc20Address, balance, currentAddress, currentAddress)
+    const msg = evmosjs.proto.createMsgConvertERC20(erc20Address, balance, currentAddress, currentEvmAccount)
     prepareMsgForBroadcast(msg);
 }
 
@@ -471,12 +523,12 @@ function convertIBC(id) {
     const currentIBCToken = ibcTokensGlobal[id];
     const ibcDenom = currentIBCToken["denom"];
     const balance = currentIBCToken["amount"];
-    const msg = evmosjs.proto.createMsgConvertCoin(ibcDenom, balance, currentAddress, currentAddress)
+    const msg = evmosjs.proto.createMsgConvertCoin(ibcDenom, balance, currentEvmAccount, currentAddress)
     prepareMsgForBroadcast(msg);
 }
 
 async function prepareMsgForBroadcast(msg) {
-
+    await updateAccount();
     const tx = evmosjs.transactions.createTransactionPayload(txParams, msg, msg)
 
     const signedTx = await window.wallet.signDirect(chain.cosmosChainId, currentAddress,
@@ -487,5 +539,24 @@ async function prepareMsgForBroadcast(msg) {
             accountNumber: txParams.accountNumber
         }
     )
-    const sendTx = await window.wallet.sendTx(chain.cosmosChainId, signedTx, "sync");
+
+    const signature = Base64Binary.decode(signedTx.signature.signature)
+    const rawTx = evmosjs.proto.createTxRaw(signedTx.signed.bodyBytes, signedTx.signed.authInfoBytes, [signature]);
+    const broadcastTx = await broadcast(rawTx)
+    console.log(broadcastTx)
+   /* console.log(rawTx)
+    const sendTx = await window.wallet.sendTx(chain.cosmosChainId, rawTx, "sync");
+    console.log(sendTx)*/
+}
+
+async function broadcast(signedTx) {
+
+    const broadcastResult = await fetch("http://192.168.178.32:1317/cosmos/tx/v1beta1/txs", {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: evmosjs.provider.generatePostBodyBroadcast(signedTx)
+    });
+    const jsonResult = await broadcastResult.json()
+    console.log(jsonResult)
+    return jsonResult;
 }
