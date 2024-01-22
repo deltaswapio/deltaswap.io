@@ -3,20 +3,20 @@ import {ethers} from "./ethers-5.7.esm.min.js";
 import { Base64Binary } from "./base64-binary.js";
 import "./lib.js";
 
-const evmosjs = window.evmosjs.Evmosjs
-const buf = window.buf
-
 const chain = {
-    chainId: 7070,
+    chainId: 7071,
     cosmosChainId: 'planq_7071-1',
 }
+
+const evmosjs = window.evmosjs.Evmosjs
+const web3 = new ethers.providers.JsonRpcProvider("http://127.0.0.1:8545", {chainId: chain.chainId, name:"Planq"},);
 
 const memo = "DeltaSwap.io Convert"
 
 const fee = {
     amount: '8000000000000000',
     denom: 'aplanq',
-    gas: '800000',
+    gas: '2000000',
 }
 
 let txParams = {
@@ -32,14 +32,18 @@ let erc20TokensGlobal;
 let ibcTokensGlobal;
 let currentAddress;
 let currentEvmAccount;
+let erc20Abi;
 
 window.onload = async () => {
-    const response = await fetch("http://127.0.0.1:4000/assets/planq_7071.json")
+    let response = await fetch("http://127.0.0.1:4000/assets/planq_7071.json")
     const planqJson = await response.json()
-    if(window.keplr !== undefined) {
-        window.wallet = window.keplr
-    } else if (window.leap !== undefined) {
+    response = await fetch("http://127.0.0.1:4000/assets/erc20.abi.json")
+    erc20Abi = await response.json()
+
+    if(window.leap) {
         window.wallet = window.leap
+    } else if (window.keplr) {
+        window.wallet = window.keplr
     }
     await window.wallet.experimentalSuggestChain( planqJson )
     await window.wallet.enable(chain.cosmosChainId);
@@ -53,7 +57,7 @@ window.onload = async () => {
     const nativeTokens = await fetchNativeTokens(currentAddress);
 
     // construct conversion tables
-    constructConversionTable(pairs);
+    await constructConversionTable(pairs);
     constructErc20Table(erc20Tokens);
     activateTooltips();
 
@@ -67,7 +71,7 @@ window.onload = async () => {
 };
 
 async function updateAccount() {
-    const offlineSigner = window.getOfflineSigner(chain.cosmosChainId);
+    const offlineSigner = window.wallet.getOfflineSigner(chain.cosmosChainId);
     const accounts = await offlineSigner.getAccounts();
     currentAddress = accounts[0]["address"];
     const pubKey = await window.wallet.getKey(chain.cosmosChainId);
@@ -127,7 +131,7 @@ function constructErc20Table(erc20Tokens) {
         const cellBalanceTextErc20 = document.createTextNode(erc20Balance);
         const cellGov = document.createElement("td");
 
-        cellGov.appendChild(addGovButton(i, currentErc20Token));
+        cellGov.appendChild(addGovButton(i, erc20Address));
         cellErc20.appendChild(cellTextErc20);
         cellNameErc20.appendChild(cellNameTextErc20);
         cellBalanceErc20.appendChild(cellBalanceTextErc20);
@@ -160,7 +164,7 @@ function getErc20ID(address) {
     return -1;
 }
 
-function constructConversionTable(pairs) {
+async function constructConversionTable(pairs) {
     if (pairs["pagination"].total < 1) {
         return
     }
@@ -173,7 +177,7 @@ function constructConversionTable(pairs) {
         const erc20Address = currentPair["erc20_address"];
         const ibcDenom = currentPair["denom"];
         const erc20Balance = fetchErc20Balance(erc20Address)
-        const ibcBalance = fetchIBCBalance(ibcDenom)
+        const ibcBalance = await fetchIBCBalance(ibcDenom)
 
         const cellErc20 = document.createElement("td");
         const cellTooltipErc20 = document.createElement("a")
@@ -221,7 +225,7 @@ function constructConversionTable(pairs) {
 function addGovButton(id, erc20Token) {
     addGovernanceModalErc20(id)
     const govButton = document.createElement("button")
-    if(!isGovProposalErc20Running(id)) {
+    if(!isGovProposalErc20Running(id, erc20TokenAddress)) {
         govButton.className = "btn btn-sm ms-1"
     } else {
         govButton.className = "btn btn-sm disabled ms-1"
@@ -238,7 +242,7 @@ function addConvertButton(id, address, balance) {
     if(balance > 0.0) {
         convertButton.className = "btn btn-sm ms-1"
         convertButton.addEventListener('click', function() {
-            if(address.includes("ibc")) {
+            if(address.includes("ibc") || address.includes("erc20")) {
                 convertIBC(id);
             } else {
                 convertErc20(id);
@@ -331,17 +335,23 @@ async function fetchBaseDenom(address) {
 function fetchErc20Balance(address) {
     for (var i = 0; i < erc20TokensGlobal.length; i++) {
         if (erc20TokensGlobal[i]["contractAddress"] == address) {
-            return erc20TokensGlobal[i]["balance"]
+            return ethers.utils.formatUnits(erc20TokensGlobal[i]["balance"], erc20TokensGlobal[i]["decimals"]);
         }
     }
     return 0;
 }
 
-function fetchIBCBalance(address) {
+async function fetchIBCBalance(address) {
     for (var i = 0; i < ibcTokensGlobal.length; i++) {
-        if (ibcTokensGlobal[i]["denom"] == address) {
-            return ibcTokensGlobal[i]["amount"]
+        const denom = ibcTokensGlobal[i]["denom"]
+        if (denom === address) {
+            if(denom.includes("erc20")) {
+                const contract = new ethers.Contract(denom.replace("erc20/", ""), erc20Abi, web3)
+                const decimals = await contract.decimals();
+                return ethers.utils.formatUnits(ibcTokensGlobal[i]["amount"], decimals)
+            }
         }
+        return ibcTokensGlobal[i]["amount"]
     }
     return 0;
 }
@@ -384,44 +394,10 @@ function createGovProposalRegisterErc20(id) {
     const erc20Address = currentErc20Token["contractAddress"];
     const name = currentErc20Token["name"];
     const title = "Register ERC20 ("+name+") for Conversion";
-    const titleToggle = "Toggle ERC20 ("+name+") for Conversion";
     const description = "This proposal will register "+name+" which is located at address "+erc20Address+" for IBC/ERC20 conversion";
-    const descriptionToggle = "This proposal will enable the conversion toggle for "+name+" which is located at address "+erc20Address;
-    const msg = evmosjs.proto.createMsgRegisterERC20(title, description, erc20Address);
-    //console.log(msg)
-    prepareMsgForBroadcast(msg)
-
-
-    //const toggleTokenConversionMsg = createMsgToggleTokenConversion(titleToggle, descriptionToggle, erc20Address);
-    //console.log(toggleTokenConversionMsg)
-    //prepareMsgForBroadcast(toggleTokenConversionMsg)
-}
-
-function createMsgToggleTokenConversion(title, description, address) {
-
-    const toggleTokenConversionProto = {
-    typeUrl : "/evmos.erc20.v1.ToggleTokenConversionProposal",
-    value : {
-        title: title,
-        description : description,
-        address : address
-        }
-    }
-    let ar = [];
-    ar[0] = new TextEncoder().encode(title);
-    ar[1] = new TextEncoder().encode(description);
-    ar[2] = new TextEncoder().encode(address);
-    //proto =  proto.fromJsonString(toggleTokenConversionProto)
-    console.log(  Uint8Array.from(ar))
-    toggleTokenConversionProto.value = new TextEncoder().encode(JSON.stringify(toggleTokenConversionProto.value))
-    const msg = evmosjs.proto.createMsgSubmitProposal(toggleTokenConversionProto, "aplanq", 0, currentAddress);
-   // const msg = evmosjs.proto.createAnyMessage(prop);
-
-    /*return {
-        msg: toggleTokenConversionProto,
-        type: evmosjs.proto.ToggleTokenConversionProposal.typeName
-    };*/
-    return msg;
+    let msg = evmosjs.proto.createMsgRegisterERC20(title, description, [erc20Address.toLowerCase()]);
+    msg = evmosjs.proto.createMsgSubmitProposal(evmosjs.proto.createAnyMessage(msg), "aplanq", "500000000000000000000", currentAddress);
+    signAndBroadcastMsg(msg)
 }
 
 function addGovernanceModalIBC(id) {
@@ -502,11 +478,9 @@ function createGovProposalRegisterIBC(id, metadataDescription, completeName, dis
         uri,
         uriHash,
     })
-    const msg = evmosjs.proto.createMsgRegisterCoin(title, description, [metadata]);
-    prepareMsgForBroadcast(msg);
-
-    const toggleTokenConversionMsg = createMsgToggleTokenConversion(titleToggle, descriptionToggle, ibcDenom);
-    prepareMsgForBroadcast(toggleTokenConversionMsg)
+    let msg = evmosjs.proto.createMsgRegisterCoin(title, description, [metadata]);
+    msg = evmosjs.proto.createMsgSubmitProposal(msg, "aplanq", "500000000000000000000", currentAddress);
+    signAndBroadcastMsg(msg)
 }
 
 function convertErc20(id) {
@@ -516,7 +490,7 @@ function convertErc20(id) {
     const balance = currentErc20Token["balance"];
     const name = currentErc20Token["name"];
     const msg = evmosjs.proto.createMsgConvertERC20(erc20Address, balance, currentAddress, currentEvmAccount)
-    prepareMsgForBroadcast(msg);
+    signAndBroadcastMsg(msg);
 }
 
 function convertIBC(id) {
@@ -524,10 +498,10 @@ function convertIBC(id) {
     const ibcDenom = currentIBCToken["denom"];
     const balance = currentIBCToken["amount"];
     const msg = evmosjs.proto.createMsgConvertCoin(ibcDenom, balance, currentEvmAccount, currentAddress)
-    prepareMsgForBroadcast(msg);
+    signAndBroadcastMsg(msg);
 }
 
-async function prepareMsgForBroadcast(msg) {
+async function signAndBroadcastMsg(msg) {
     await updateAccount();
     const tx = evmosjs.transactions.createTransactionPayload(txParams, msg, msg)
 
@@ -543,10 +517,6 @@ async function prepareMsgForBroadcast(msg) {
     const signature = Base64Binary.decode(signedTx.signature.signature)
     const rawTx = evmosjs.proto.createTxRaw(signedTx.signed.bodyBytes, signedTx.signed.authInfoBytes, [signature]);
     const broadcastTx = await broadcast(rawTx)
-    console.log(broadcastTx)
-   /* console.log(rawTx)
-    const sendTx = await window.wallet.sendTx(chain.cosmosChainId, rawTx, "sync");
-    console.log(sendTx)*/
 }
 
 async function broadcast(signedTx) {
