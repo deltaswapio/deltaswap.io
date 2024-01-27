@@ -28,11 +28,12 @@ let txParams = {
     accountNumber: 0,
 }
 
-let erc20TokensGlobal;
+let erc20Tokens = new Map();
 let ibcTokensGlobal;
 let currentAddress;
 let currentEvmAccount;
 let erc20Abi;
+let currentModal;
 
 window.onload = async () => {
     let response = await fetch("http://127.0.0.1:4000/assets/planq_7071.json")
@@ -53,12 +54,12 @@ window.onload = async () => {
 
     // fetch available token pairs & erc20 / ibc balances
     const pairs = await fetchTokenPairs();
-    const erc20Tokens = await fetchErc20Tokens(currentEvmAccount);
+    await updateErc20Tokens(currentEvmAccount);
     const nativeTokens = await fetchNativeTokens(currentAddress);
 
     // construct conversion tables
     await constructConversionTable(pairs);
-    constructErc20Table(erc20Tokens);
+    updateErc20Table();
     activateTooltips();
 
     window.addEventListener("leap_keystorechange", () => {
@@ -104,18 +105,18 @@ var truncate = function (fullStr, strLen, separator) {
         fullStr.substr(fullStr.length - backChars);
 };
 
-function constructErc20Table(erc20Tokens) {
-    if (erc20Tokens["result"].length < 1) {
+function updateErc20Table() {
+    if (erc20Tokens.size < 1) {
         return
     }
 
     const erc20Table = document.querySelector("#erc20-table");
 
-    console.log(erc20Tokens)
-    for (let i = 0; i < erc20Tokens["result"].length; i++) {
+    let rows = [];
+    const erc20Iterator = erc20Tokens[Symbol.iterator]();
+    for (const [address, erc20Token] of erc20Iterator) {
         const row = document.createElement("tr");
-        const currentErc20Token = erc20Tokens["result"][i];
-        console.log(currentErc20Token)
+        const currentErc20Token = erc20Token;
         const erc20Address = currentErc20Token["contractAddress"];
         const decimals = currentErc20Token["decimals"];
         const balance = currentErc20Token["balance"];
@@ -131,7 +132,7 @@ function constructErc20Table(erc20Tokens) {
         const cellBalanceTextErc20 = document.createTextNode(erc20Balance);
         const cellGov = document.createElement("td");
 
-        cellGov.appendChild(addGovButton(i, erc20Address));
+        cellGov.appendChild(addGovButton(erc20Address));
         cellErc20.appendChild(cellTextErc20);
         cellNameErc20.appendChild(cellNameTextErc20);
         cellBalanceErc20.appendChild(cellBalanceTextErc20);
@@ -141,23 +142,14 @@ function constructErc20Table(erc20Tokens) {
         row.appendChild(cellBalanceErc20);
         row.appendChild(cellGov);
 
-        erc20Table.children[1].appendChild(row);
+        rows[rows.length] = row;
     }
+    erc20Table.children[1].replaceChildren(...rows);
 }
 
 function getIBCID(address) {
-    console.log(address)
     for(var i = 0; i < ibcTokensGlobal.length; i++) {
         if(address === ibcTokensGlobal[i]["denom"]) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-function getErc20ID(address) {
-    for(var i = 0; i < erc20TokensGlobal; i++) {
-        if(address == erc20TokensGlobal[i]["contractAddress"]) {
             return i;
         }
     }
@@ -176,7 +168,7 @@ async function constructConversionTable(pairs) {
         console.log(currentPair)
         const erc20Address = currentPair["erc20_address"];
         const ibcDenom = currentPair["denom"];
-        const erc20Balance = fetchErc20Balance(erc20Address)
+        const erc20Balance = getErc20Balance(erc20Address)
         const ibcBalance = await fetchIBCBalance(ibcDenom)
 
         const cellErc20 = document.createElement("td");
@@ -194,7 +186,7 @@ async function constructConversionTable(pairs) {
         cellTooltipErc20.appendChild(cellTextErc20);
         cellErc20.appendChild(cellTooltipErc20);
         cellBalanceErc20.appendChild(cellBalanceTextErc20);
-        cellBalanceErc20.appendChild(addConvertButton(getErc20ID(erc20Address), erc20Address, erc20Balance));
+        cellBalanceErc20.appendChild(addConvertButton(erc20Address, erc20Balance));
 
         const cellIBC = document.createElement("td");
         const cellTextIBC = document.createTextNode(truncate(ibcDenom,15));
@@ -222,30 +214,30 @@ async function constructConversionTable(pairs) {
     }
 }
 
-function addGovButton(id, erc20Token) {
-    addGovernanceModalErc20(id)
+function addGovButton(erc20Address) {
+    addGovernanceModalErc20(erc20Address)
     const govButton = document.createElement("button")
-    if(!isGovProposalErc20Running(id, erc20TokenAddress)) {
+    if(!isGovProposalErc20Running(erc20Address)) {
         govButton.className = "btn btn-sm ms-1"
     } else {
         govButton.className = "btn btn-sm disabled ms-1"
     }
     govButton.dataset.bsToggle = "modal"
-    govButton.dataset.bsTarget = "#erc20Modal"+id
+    govButton.dataset.bsTarget = "#erc20Modal"+erc20Address
     govButton.textContent = "Apply for Conversion";
     return govButton
 }
 
-function addConvertButton(id, address, balance) {
+function addConvertButton(address, balance) {
     const convertButton = document.createElement("button");
 
     if(balance > 0.0) {
         convertButton.className = "btn btn-sm ms-1"
         convertButton.addEventListener('click', function() {
             if(address.includes("ibc") || address.includes("erc20")) {
-                convertIBC(id);
+                convertIBC(address);
             } else {
-                convertErc20(id);
+                convertErc20(address);
             }
         });
     } else {
@@ -261,23 +253,26 @@ function isGovProposalErc20Running(id) {
 }
 
 
-async function fetchErc20Tokens(address) {
+async function updateErc20Tokens(address) {
+    erc20Tokens.clear();
     const url = "https://evm.planq.network/api?module=account&action=tokenlist&address=" + address;
     const resp = await fetch(url);
     let json = await resp.json();
-    json["result"][0]["contractAddress"] = "0xfF484c332B12c1212805e821fBbA65673b67fF02";
+    json["result"][0] = [];
+    json["result"][0]["contractAddress"] = "0x6A428614F9fE74B209deAf06432Da54Dc6E8aa11";
     json["result"][0]["decimals"] = "18";
-    json["result"][0]["balance"] = "10000";
-    json["result"][0]["name"] = "Test";
+    json["result"][0]["balance"] = "1000000000000000000000000";
+    json["result"][0]["name"] = "Convert Token";
     if (json["result"].length < 1) {
         return
     }
-    erc20TokensGlobal = json["result"]
-    return json
+    for(var i = 0; i < json["result"].length; i++) {
+        erc20Tokens.set(json["result"][i]["contractAddress"], json["result"][i])
+    }
 }
 
 async function fetchNativeTokens(address) {
-    const url = "http://192.168.178.32:1317/cosmos/bank/v1beta1/balances/" + address;
+    const url = "http://127.0.0.1:1317/cosmos/bank/v1beta1/balances/" + address;
     const resp = await fetch(url);
     const json = await resp.json();
     if (json["balances"].length < 1) {
@@ -296,14 +291,14 @@ async function fetchNativeTokens(address) {
 }
 
 async function fetchTokenPairs() {
-    const url = "http://192.168.178.32:1317/evmos/erc20/v1/token_pairs";
+    const url = "http://127.0.0.1:1317/evmos/erc20/v1/token_pairs";
     const resp = await fetch(url);
     const json = await resp.json();
     return json
 }
 
 async function fetchAccount(address, pubKey) {
-    const url = "http://192.168.178.32:1317/cosmos/auth/v1beta1/accounts/" + address;
+    const url = "http://127.0.0.1:1317/cosmos/auth/v1beta1/accounts/" + address;
     const resp = await fetch(url);
     const json = await resp.json();
     if (json["account"].length < 1) {
@@ -323,7 +318,7 @@ async function fetchBaseDenom(address) {
     if(address.includes("erc20")) {
         return ""
     }
-    const url = "http://192.168.178.32:1317/ibc/apps/transfer/v1/denom_traces/"+address
+    const url = "http://127.0.0.1:1317/ibc/apps/transfer/v1/denom_traces/"+address
     const resp = await fetch(url);
     const json = await resp.json();
     if(json["denom_trace".length < 1]) {
@@ -332,11 +327,9 @@ async function fetchBaseDenom(address) {
     return json
 }
 
-function fetchErc20Balance(address) {
-    for (var i = 0; i < erc20TokensGlobal.length; i++) {
-        if (erc20TokensGlobal[i]["contractAddress"] == address) {
-            return ethers.utils.formatUnits(erc20TokensGlobal[i]["balance"], erc20TokensGlobal[i]["decimals"]);
-        }
+function getErc20Balance(address) {
+    if (erc20Tokens.get(address)) {
+        return ethers.utils.formatUnits(erc20Tokens.get(address)["balance"], erc20Tokens.get(address)["decimals"]);
     }
     return 0;
 }
@@ -356,14 +349,13 @@ async function fetchIBCBalance(address) {
     return 0;
 }
 
-function addGovernanceModalErc20(id) {
-    const currentErc20Token = erc20TokensGlobal[id];
-    const erc20Address = currentErc20Token["contractAddress"];
+function addGovernanceModalErc20(erc20Address) {
+    const currentErc20Token = erc20Tokens.get(erc20Address);
     const decimals = currentErc20Token["decimals"];
     const balance = currentErc20Token["balance"];
     const name = currentErc20Token["name"];
 
-    window.document.body.insertAdjacentHTML('beforeend','<div class="modal fade" id="erc20Modal'+id+'" tabindex="-1" aria-labelledby="erc20ModalLabel" aria-hidden="true">\n' +
+    window.document.body.insertAdjacentHTML('beforeend','<div class="modal fade" id="erc20Modal'+erc20Address+'" tabindex="-1" aria-labelledby="erc20ModalLabel" aria-hidden="true">\n' +
         '  <div class="modal-dialog">\n' +
         '    <div class="modal-content">\n' +
         '      <div class="modal-header">\n' +
@@ -377,27 +369,30 @@ function addGovernanceModalErc20(id) {
         '      </div>\n' +
         '      <div class="modal-footer">\n' +
         '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>\n' +
-        '        <button type="button" id="erc20CreateGovProposal'+id+'" class="btn btn-primary">Create</button>\n' +
+        '        <button type="button" id="erc20CreateGovProposal'+erc20Address+'" class="btn btn-primary">Create</button>\n' +
         '      </div>\n' +
         '    </div>\n' +
         '  </div>\n' +
         '</div>')
 
-    const erc20CreateGovProposalButton = document.getElementById("erc20CreateGovProposal" + id)
+    currentModal = "#erc20Modal"+erc20Address;
+
+    const erc20CreateGovProposalButton = document.getElementById("erc20CreateGovProposal" + erc20Address)
     erc20CreateGovProposalButton.addEventListener('click', function() {
-        createGovProposalRegisterErc20(id);
+        const tx = createGovProposalRegisterErc20(erc20Address);
+        document.querySelector(currentModal).modal().toggle()
+        showTxBroadcastModal(tx);
     });
 }
 
-function createGovProposalRegisterErc20(id) {
-    const currentErc20Token = erc20TokensGlobal[id];
-    const erc20Address = currentErc20Token["contractAddress"];
+async function createGovProposalRegisterErc20(erc20Address) {
+    const currentErc20Token = erc20Tokens.get(erc20Address);
     const name = currentErc20Token["name"];
     const title = "Register ERC20 ("+name+") for Conversion";
     const description = "This proposal will register "+name+" which is located at address "+erc20Address+" for IBC/ERC20 conversion";
     let msg = evmosjs.proto.createMsgRegisterERC20(title, description, [erc20Address.toLowerCase()]);
     msg = evmosjs.proto.createMsgSubmitProposal(evmosjs.proto.createAnyMessage(msg), "aplanq", "500000000000000000000", currentAddress);
-    signAndBroadcastMsg(msg)
+    const tx = await signAndBroadcastMsg(msg)
 }
 
 function addGovernanceModalIBC(id) {
@@ -483,8 +478,8 @@ function createGovProposalRegisterIBC(id, metadataDescription, completeName, dis
     signAndBroadcastMsg(msg)
 }
 
-function convertErc20(id) {
-    const currentErc20Token = erc20TokensGlobal[0];
+function convertErc20(address) {
+    const currentErc20Token = erc20Tokens.get(address);
     const erc20Address = currentErc20Token["contractAddress"];
     const decimals = currentErc20Token["decimals"];
     const balance = currentErc20Token["balance"];
@@ -516,17 +511,37 @@ async function signAndBroadcastMsg(msg) {
 
     const signature = Base64Binary.decode(signedTx.signature.signature)
     const rawTx = evmosjs.proto.createTxRaw(signedTx.signed.bodyBytes, signedTx.signed.authInfoBytes, [signature]);
-    const broadcastTx = await broadcast(rawTx)
+    return await broadcast(rawTx)
 }
 
 async function broadcast(signedTx) {
 
-    const broadcastResult = await fetch("http://192.168.178.32:1317/cosmos/tx/v1beta1/txs", {
+    const broadcastResult = await fetch("http://127.0.0.1:1317/cosmos/tx/v1beta1/txs", {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: evmosjs.provider.generatePostBodyBroadcast(signedTx)
     });
     const jsonResult = await broadcastResult.json()
-    console.log(jsonResult)
     return jsonResult;
+}
+
+function showTxBroadcastModal(tx) {
+    const txHash = tx["tx_response"]["txhash"];
+
+    window.document.body.insertAdjacentHTML('beforeend',
+        '<div class="toast-container position-absolute p-3 top-0 end-0" >\n' +
+        '  <div class="toast" role="alert" aria-live="assertive" aria-atomic="true" id="tx'+txHash+'">\n' +
+        '    <div class="toast-header">\n' +
+        '      <strong class="me-auto">Success</strong>\n' +
+        '      <small>now</small>\n' +
+        '      <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>\n' +
+        '    </div>\n' +
+        '    <div class="toast-body">\n' +
+        '      <a href="https://explorer.planq.network/transactions/'+txHash+'" target="_blank">'+txHash+'</a>.\n' +
+        '    </div>\n' +
+        '  </div>\n' +
+        '</div>')
+
+    const toast = bootstrap.Toast.getOrCreateInstance(document.querySelector("#tx"+txHash), {delay: 2000})
+    toast.show();
 }
