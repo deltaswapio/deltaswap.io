@@ -47,8 +47,9 @@ permalink: /convert
     <table class="table table-responsive" id="ibc-table">
       <thead>
         <tr>
-          <th scope="col">IBC</th>
-          <th scope="col">IBC Balance</th>
+          <th scope="col">Base Denom</th>
+          <th scope="col">Denom</th>
+          <th scope="col">Balance</th>
           <th scope="col">Actions</th>
         </tr>
       </thead>

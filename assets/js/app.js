@@ -60,6 +60,7 @@ window.onload = async () => {
     // construct conversion tables
     await constructConversionTable(pairs);
     updateErc20Table();
+    updateIBCTable();
     activateTooltips();
 
     window.addEventListener("leap_keystorechange", () => {
@@ -147,6 +148,66 @@ function updateErc20Table() {
     erc20Table.children[1].replaceChildren(...rows);
 }
 
+function updateIBCTable() {
+    if (ibcTokensGlobal.size < 1) {
+        return
+    }
+
+    const ibcTable = document.querySelector("#ibc-table");
+
+    let rows = [];
+    const ibcIterator = ibcTokensGlobal[Symbol.iterator]();
+    for (const [address, ibcToken] of ibcIterator) {
+        const row = document.createElement("tr");
+        const currentIBCToken = ibcToken;
+        const ibcAddress = currentIBCToken["denom"];
+        let decimals = 0;
+
+        if(currentIBCToken["base_denom"] && currentIBCToken["base_denom"] != "") {
+            if(currentIBCToken["base_denom"][0] == "a") {
+                decimals = 18;
+            } else if (currentIBCToken["base_denom"][0] == "u"){
+                decimals = 6
+            }
+        }
+
+        const balance = currentIBCToken["amount"];
+        const name = currentIBCToken["base_denom"];
+        console.log(name)
+        const ibcBalance = ethers.utils.formatUnits(balance, decimals);
+
+        const cellNameIBC = document.createElement("td");
+        const cellNameTextIBC = document.createTextNode(name);
+        const cellIBC = document.createElement("td");
+
+        const cellTextIBC = document.createTextNode(truncate(ibcAddress,15));
+
+        const cellBalanceIBC = document.createElement("td");
+        const cellBalanceTextIBC = document.createTextNode(ibcBalance);
+        const cellGov = document.createElement("td");
+        const cellTooltipIBC = document.createElement("a");
+
+        cellTooltipIBC.href = "#";
+        cellTooltipIBC.dataset.bsToggle = "tooltip";
+        cellTooltipIBC.dataset.bsOriginalTitle = ibcAddress;
+
+        cellTooltipIBC.appendChild(cellTextIBC);
+
+        cellGov.appendChild(addGovButton(ibcAddress));
+        cellIBC.appendChild(cellTooltipIBC);
+        cellNameIBC.appendChild(cellNameTextIBC);
+        cellBalanceIBC.appendChild(cellBalanceTextIBC);
+
+        row.appendChild(cellNameIBC);
+        row.appendChild(cellIBC);
+        row.appendChild(cellBalanceIBC);
+        row.appendChild(cellGov);
+
+        rows[rows.length] = row;
+    }
+    ibcTable.children[1].replaceChildren(...rows);
+}
+
 async function constructConversionTable(pairs) {
     if (pairs["pagination"].total < 1) {
         return
@@ -191,7 +252,7 @@ async function constructConversionTable(pairs) {
         cellTooltipIBC.appendChild(cellTextIBC);
         cellIBC.appendChild(cellTooltipIBC);
         cellBalanceIBC.appendChild(cellBalanceTextIBC);
-        cellBalanceIBC.appendChild(addConvertButton(ibcDenom, ibcDenom, ibcBalance));
+        cellBalanceIBC.appendChild(addConvertButton(ibcDenom, ibcBalance));
 
         row.appendChild(cellErc20);
         row.appendChild(cellBalanceErc20);
@@ -204,16 +265,23 @@ async function constructConversionTable(pairs) {
     }
 }
 
-function addGovButton(erc20Address) {
-    addGovernanceModalErc20(erc20Address)
+function addGovButton(address) {
+    let modalTarget = "#erc20Modal"+address
+    if(address.includes("ibc") || address.includes("erc20")) {
+        addGovernanceModalIBC(address)
+        modalTarget = "#ibcModal"+ethers.utils.id(address)
+    } else {
+        addGovernanceModalErc20(address)
+    }
+
     const govButton = document.createElement("button")
-    if(!isGovProposalErc20Running(erc20Address)) {
+    if(!isGovProposalRunning(address)) {
         govButton.className = "btn btn-sm ms-1"
     } else {
         govButton.className = "btn btn-sm disabled ms-1"
     }
     govButton.dataset.bsToggle = "modal"
-    govButton.dataset.bsTarget = "#erc20Modal"+erc20Address
+    govButton.dataset.bsTarget = modalTarget
     govButton.textContent = "Apply for Conversion";
     return govButton
 }
@@ -222,6 +290,7 @@ function addConvertButton(address, balance) {
     const convertButton = document.createElement("button");
 
     if(balance > 0.0) {
+        console.log(balance)
         convertButton.className = "btn btn-sm ms-1"
         convertButton.addEventListener('click', function() {
             if(address.includes("ibc") || address.includes("erc20")) {
@@ -237,7 +306,7 @@ function addConvertButton(address, balance) {
     return convertButton
 }
 
-function isGovProposalErc20Running(id) {
+function isGovProposalRunning(address) {
     // TODO: IMPLEMENT ME
     return false
 }
@@ -256,13 +325,18 @@ async function updateErc20Tokens(address) {
     if (json["result"].length < 1) {
         return
     }
+    console.log(json["result"])
     for(var i = 0; i < json["result"].length; i++) {
+        if(json["result"][i]["decimals"] == "") {
+            continue
+        }
         erc20Tokens.set(json["result"][i]["contractAddress"], json["result"][i])
     }
 }
 
 async function updateIBCTokens(address) {
-    const url = "http://127.0.0.1:1317/cosmos/bank/v1beta1/balances/" + address;
+    //const url = "http://127.0.0.1:1317/cosmos/bank/v1beta1/balances/" + address;
+    const url = "https://rest.planq.network/cosmos/bank/v1beta1/balances/" + address;
     const resp = await fetch(url);
     const json = await resp.json();
     if (json["balances"].length < 1) {
@@ -270,7 +344,7 @@ async function updateIBCTokens(address) {
     }
 
     for(var i = 0; i < json["balances"].length; i++) {
-        if(json["balances"][i]["denom"] == "aplanq") {
+        if(json["balances"][i]["denom"] === "aplanq") {
             continue
         }
         json["balances"][i]["base_denom"] = await fetchBaseDenom(json["balances"][i]["denom"]);
@@ -287,6 +361,7 @@ async function fetchTokenPairs() {
 
 async function fetchAccount(address, pubKey) {
     const url = "http://127.0.0.1:1317/cosmos/auth/v1beta1/accounts/" + address;
+
     const resp = await fetch(url);
     const json = await resp.json();
     if (json["account"].length < 1) {
@@ -306,13 +381,14 @@ async function fetchBaseDenom(address) {
     if(address.includes("erc20")) {
         return ""
     }
-    const url = "http://127.0.0.1:1317/ibc/apps/transfer/v1/denom_traces/"+address
+    //const url = "http://127.0.0.1:1317/ibc/apps/transfer/v1/denom_traces/"+address
+    const url = "https://rest.planq.network/ibc/apps/transfer/v1/denom_traces/"+address
     const resp = await fetch(url);
     const json = await resp.json();
     if(json["denom_trace".length < 1]) {
         return ""
     }
-    return json
+    return json["denom_trace"]["base_denom"]
 }
 
 function getErc20Balance(address) {
@@ -360,13 +436,13 @@ function addGovernanceModalErc20(erc20Address) {
         '  </div>\n' +
         '</div>')
 
-    currentModal = "#erc20Modal"+erc20Address;
+    const currentModal = "#erc20Modal"+erc20Address;
 
     const erc20CreateGovProposalButton = document.getElementById("erc20CreateGovProposal" + erc20Address)
-    erc20CreateGovProposalButton.addEventListener('click', function() {
-        const tx = createGovProposalRegisterErc20(erc20Address);
+    erc20CreateGovProposalButton.addEventListener('click', async function() {
+        const tx = await createGovProposalRegisterErc20(erc20Address);
         document.querySelector(currentModal).modal().toggle()
-        showTxBroadcastModal(tx);
+        showTxBroadcastNotification(tx);
     });
 }
 
@@ -377,7 +453,7 @@ async function createGovProposalRegisterErc20(erc20Address) {
     const description = "This proposal will register "+name+" which is located at address "+erc20Address+" for IBC/ERC20 conversion";
     let msg = evmosjs.proto.createMsgRegisterERC20(title, description, [erc20Address.toLowerCase()]);
     msg = evmosjs.proto.createMsgSubmitProposal(evmosjs.proto.createAnyMessage(msg), "aplanq", "500000000000000000000", currentAddress);
-    const tx = await signAndBroadcastMsg(msg)
+    return await signAndBroadcastMsg(msg)
 }
 
 function addGovernanceModalIBC(address) {
@@ -386,7 +462,7 @@ function addGovernanceModalIBC(address) {
     const ibcBaseDenom = currentIBCToken["base_denom"];
     const balance = currentIBCToken["amount"];
 
-    window.document.body.insertAdjacentHTML('beforeend','<div class="modal fade" id="ibcModal'+id+'" tabindex="-1" aria-labelledby="ibcModalLabel" aria-hidden="true">\n' +
+    window.document.body.insertAdjacentHTML('beforeend','<div class="modal fade" id="ibcModal'+ethers.utils.id(address)+'" tabindex="-1" aria-labelledby="ibcModalLabel" aria-hidden="true">\n' +
         '  <div class="modal-dialog">\n' +
         '    <div class="modal-content">\n' +
         '      <div class="modal-header">\n' +
@@ -397,32 +473,56 @@ function addGovernanceModalIBC(address) {
         '        <p>This will create a IBC conversion proposal</p>\n' +
         '        <p>The address is '+ibcAddress+'</p>\n' +
         '        <p>To continue fill out the form and click create.</p>\n' +
-        '        <form id="ibcCreateGovForm'+id+'">\n' +
-        '           <input type="text" name="baseDenom" value="'+ibcBaseDenom+'" disabled="" />'+
-        '           <input type="text" name="baseDenomUnits" value="0" disabled="" />'+
-        '           <input type="text" name="displayDenom" placeholder="osmo" />'+
-        '           <input type="text" name="displayUnits" placeholder="6" />'+
-        '           <input type="text" name="displayName" placeholder="OSMO" />'+
-        '           <input type="text" name="symbol" placeholder="OSMO" />'+
-        '           <input type="text" name="description" placeholder="The native staking and governance token of the Osmosis chain" />'+
+        '        <form id="ibcCreateGovForm'+ethers.utils.id(address)+'">' +
+        '           <div class="mb-3">'+
+        '               <label for="baseDenom" class="form-label">Base Denom</label>\n'+
+        '               <input class="form-control" type="text" id="baseDenom" name="baseDenom" value="'+ibcBaseDenom+'" disabled="" />'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="baseDenomUnits" class="form-label">Base Denom Units</label>\n'+
+        '               <input class="form-control" type="text" id="baseDenomUnits" name="baseDenomUnits" value="0" disabled="" />'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="displayDenom" class="form-label">Display Denom</label>\n'+
+        '               <input class="form-control" type="text" id="displayDenom" name="displayDenom" placeholder="KUJI" />'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="displayUnits" class="form-label">Display Denom Units</label>\n'+
+        '               <input class="form-control" type="text" id="displayUnits" name="displayUnits" placeholder="6" />'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="symbol" class="form-label">Symbol</label>\n'+
+        '               <input class="form-control" type="text" id="symbol" name="symbol" placeholder="KUJI" />'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="displayName" class="form-label">Display Name</label>\n'+
+        '               <input class="form-control" type="text" id="displayName" name="displayName" placeholder="Kujira" />'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="description" class="form-label">Description</label>\n'+
+        '               <input class="form-control" type="text" id="description" name="description" placeholder="The native staking and governance token of the Kujira chain" />'+
+        '           </div>'+
         '        </form>\n' +
         '      </div>\n' +
         '      <div class="modal-footer">\n' +
         '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>\n' +
-        '        <button type="button" id="ibcCreateGovProposal'+id+'" class="btn btn-primary">Create</button>\n' +
+        '        <button type="button" id="ibcCreateGovProposal'+ethers.utils.id(address)+'" class="btn btn-primary">Create</button>\n' +
         '      </div>\n' +
         '    </div>\n' +
         '  </div>\n' +
         '</div>')
 
-    const ibcCreateGovProposalButton = document.getElementById("ibcCreateGovProposal" + id)
-    ibcCreateGovProposalButton.addEventListener('click', function() {
-        const govForm = document.getElementById("ibcCreateGovForm"+id);
-        const displayName = govForm.getElementsByName("displayName")[0];
-        const displayDenom = govForm.getElementsByName("displayDenom")[0];
-        const displayUnits = govForm.getElementsByName("displayUnits")[0];
-        const symbol = govForm.getElementsByName("symbol")[0];
-        const description = govForm.getElementsByName("description")[0];
+
+    const currentModal = "ibcModal"+ethers.utils.id(address);
+
+    const ibcCreateGovProposalButton = document.getElementById("ibcCreateGovProposal" + ethers.utils.id(address))
+    ibcCreateGovProposalButton.addEventListener('click', async function() {
+        const govForm = document.getElementById("ibcCreateGovForm"+ethers.utils.id(address));
+        const displayDenom = govForm[2].value;
+        const displayUnits = govForm[3].value;
+        const symbol = govForm[4].value;
+        const displayName = govForm[5].value;
+        const description = govForm[6].value;
         const denomUnits =
             [
                 {
@@ -432,53 +532,57 @@ function addGovernanceModalIBC(address) {
                 },
                 {
                     "denom": displayDenom,
-                    "exponent": displayUnits
+                    "exponent": parseInt(displayUnits)
                 }
             ]
-        createGovProposalRegisterIBC(address, description, displayName, symbol, denomUnits);
+
+        const tx = await createGovProposalRegisterIBC(address, description, displayName, displayDenom, symbol, denomUnits);
+        console.log(document.getElementById(currentModal))
+        document.getElementById(currentModal).modal().toggle();
+        showTxBroadcastNotification(tx);
     });
 }
 
-function createGovProposalRegisterIBC(address, metadataDescription, completeName, displayName, symbol, denomUnits) {
+async function createGovProposalRegisterIBC(address, metadataDescription, completeName, displayName, symbol, denomUnits) {
     const currentIBCToken = ibcTokensGlobal.get(address);
     const ibcDenom = currentIBCToken["denom"];
     const title = "Register IBC Token ("+displayName+") for Conversion";
-    const titleToggle = "Toggle IBC Token ("+displayName+") for Conversion";
     const description = "This proposal will register "+displayName+" which is located at address "+ibcDenom+" for IBC/ERC20 conversion";
-    const descriptionToggle = "This proposal will enable the conversion toggle for "+displayName+" which is located at address "+ibcDenom;
     const uri = ''
     const uriHash = ''
-    const metadata = new evmosjs.proto.Metadata({
+    const metadata = {
         description: metadataDescription,
         denomUnits: denomUnits,
         base: ibcDenom,
         display: displayName,
         name: completeName,
         symbol: symbol,
-        uri,
-        uriHash,
-    })
+        uri: uri,
+        uriHash: uriHash,
+    }
     let msg = evmosjs.proto.createMsgRegisterCoin(title, description, [metadata]);
-    msg = evmosjs.proto.createMsgSubmitProposal(msg, "aplanq", "500000000000000000000", currentAddress);
-    signAndBroadcastMsg(msg)
+    msg = evmosjs.proto.createMsgSubmitProposal(evmosjs.proto.createAnyMessage(msg), "aplanq", "500000000000000000000", currentAddress);
+    return await signAndBroadcastMsg(msg)
 }
 
-function convertErc20(address) {
+async function convertErc20(address) {
     const currentErc20Token = erc20Tokens.get(address);
     const erc20Address = currentErc20Token["contractAddress"];
     const decimals = currentErc20Token["decimals"];
     const balance = currentErc20Token["balance"];
     const name = currentErc20Token["name"];
     const msg = evmosjs.proto.createMsgConvertERC20(erc20Address, balance, currentAddress, currentEvmAccount)
-    signAndBroadcastMsg(msg);
+    const tx = await signAndBroadcastMsg(msg);
+    showTxBroadcastNotification(tx);
 }
 
-function convertIBC(address) {
+async function convertIBC(address) {
     const currentIBCToken = ibcTokensGlobal.get(address);
     const ibcDenom = currentIBCToken["denom"];
     const balance = currentIBCToken["amount"];
     const msg = evmosjs.proto.createMsgConvertCoin(ibcDenom, balance, currentEvmAccount, currentAddress)
-    signAndBroadcastMsg(msg);
+    const tx = await signAndBroadcastMsg(msg);
+    showTxBroadcastNotification(tx);
 }
 
 async function signAndBroadcastMsg(msg) {
@@ -510,23 +614,31 @@ async function broadcast(signedTx) {
     return jsonResult;
 }
 
-function showTxBroadcastModal(tx) {
+function showTxBroadcastNotification(tx) {
     const txHash = tx["tx_response"]["txhash"];
+    let header = "Success";
+    let body = '      <a href="https://explorer.planq.network/transactions/'+txHash+'" target="_blank">'+txHash+'</a>.\n';
+    let delay = 2000;
+    if(tx["tx_response"]["raw_log"] != "[]") {
+        header = "Error";
+        body = tx["tx_response"]["raw_log"];
+        delay = 5000;
+    }
 
     window.document.body.insertAdjacentHTML('beforeend',
         '<div class="toast-container position-absolute p-3 top-0 end-0" >\n' +
         '  <div class="toast" role="alert" aria-live="assertive" aria-atomic="true" id="tx'+txHash+'">\n' +
         '    <div class="toast-header">\n' +
-        '      <strong class="me-auto">Success</strong>\n' +
+        '      <strong class="me-auto">'+header+'</strong>\n' +
         '      <small>now</small>\n' +
         '      <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>\n' +
         '    </div>\n' +
         '    <div class="toast-body">\n' +
-        '      <a href="https://explorer.planq.network/transactions/'+txHash+'" target="_blank">'+txHash+'</a>.\n' +
+         body +
         '    </div>\n' +
         '  </div>\n' +
         '</div>')
 
-    const toast = bootstrap.Toast.getOrCreateInstance(document.querySelector("#tx"+txHash), {delay: 2000})
+    const toast = bootstrap.Toast.getOrCreateInstance(document.querySelector("#tx"+txHash), {delay: delay})
     toast.show();
 }
