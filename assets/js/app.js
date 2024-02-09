@@ -156,7 +156,6 @@ async function constructConversionTable(pairs) {
         // creates a table row
         const row = document.createElement("tr");
         const currentPair = pairs["token_pairs"][i]
-        console.log(currentPair)
         const erc20Address = currentPair["erc20_address"];
         const ibcDenom = currentPair["denom"];
         const erc20Balance = getErc20Balance(erc20Address)
@@ -269,15 +268,12 @@ async function updateIBCTokens(address) {
     if (json["balances"].length < 1) {
         return
     }
-    else {
-        for(var i = 0; i < json["balances"].length; i++) {
-            if(json["balances"][i]["denom"] == "aplanq") {
-                continue
-            }
-            json["balances"][i]["base_denom"] = await fetchBaseDenom(json["balances"][i]["denom"]);
-        }
-    }
+
     for(var i = 0; i < json["balances"].length; i++) {
+        if(json["balances"][i]["denom"] == "aplanq") {
+            continue
+        }
+        json["balances"][i]["base_denom"] = await fetchBaseDenom(json["balances"][i]["denom"]);
         ibcTokensGlobal.set(json["balances"][i]["denom"], json["balances"][i])
     }
 }
