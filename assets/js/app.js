@@ -29,7 +29,7 @@ let txParams = {
 }
 
 let erc20Tokens = new Map();
-let ibcTokensGlobal;
+let ibcTokensGlobal = new Map();
 let currentAddress;
 let currentEvmAccount;
 let erc20Abi;
@@ -55,7 +55,7 @@ window.onload = async () => {
     // fetch available token pairs & erc20 / ibc balances
     const pairs = await fetchTokenPairs();
     await updateErc20Tokens(currentEvmAccount);
-    const nativeTokens = await fetchNativeTokens(currentAddress);
+    await updateIBCTokens(currentAddress);
 
     // construct conversion tables
     await constructConversionTable(pairs);
@@ -147,15 +147,6 @@ function updateErc20Table() {
     erc20Table.children[1].replaceChildren(...rows);
 }
 
-function getIBCID(address) {
-    for(var i = 0; i < ibcTokensGlobal.length; i++) {
-        if(address === ibcTokensGlobal[i]["denom"]) {
-            return i;
-        }
-    }
-    return -1;
-}
-
 async function constructConversionTable(pairs) {
     if (pairs["pagination"].total < 1) {
         return
@@ -201,7 +192,7 @@ async function constructConversionTable(pairs) {
         cellTooltipIBC.appendChild(cellTextIBC);
         cellIBC.appendChild(cellTooltipIBC);
         cellBalanceIBC.appendChild(cellBalanceTextIBC);
-        cellBalanceIBC.appendChild(addConvertButton(getIBCID(ibcDenom), ibcDenom, ibcBalance));
+        cellBalanceIBC.appendChild(addConvertButton(ibcDenom, ibcDenom, ibcBalance));
 
         row.appendChild(cellErc20);
         row.appendChild(cellBalanceErc20);
@@ -259,7 +250,7 @@ async function updateErc20Tokens(address) {
     const resp = await fetch(url);
     let json = await resp.json();
     json["result"][0] = [];
-    json["result"][0]["contractAddress"] = "0x6A428614F9fE74B209deAf06432Da54Dc6E8aa11";
+    json["result"][0]["contractAddress"] = "0xfF484c332B12c1212805e821fBbA65673b67fF02";
     json["result"][0]["decimals"] = "18";
     json["result"][0]["balance"] = "1000000000000000000000000";
     json["result"][0]["name"] = "Convert Token";
@@ -271,7 +262,7 @@ async function updateErc20Tokens(address) {
     }
 }
 
-async function fetchNativeTokens(address) {
+async function updateIBCTokens(address) {
     const url = "http://127.0.0.1:1317/cosmos/bank/v1beta1/balances/" + address;
     const resp = await fetch(url);
     const json = await resp.json();
@@ -286,8 +277,9 @@ async function fetchNativeTokens(address) {
             json["balances"][i]["base_denom"] = await fetchBaseDenom(json["balances"][i]["denom"]);
         }
     }
-    ibcTokensGlobal = json["balances"]
-    return json
+    for(var i = 0; i < json["balances"].length; i++) {
+        ibcTokensGlobal.set(json["balances"][i]["denom"], json["balances"][i])
+    }
 }
 
 async function fetchTokenPairs() {
@@ -335,16 +327,13 @@ function getErc20Balance(address) {
 }
 
 async function fetchIBCBalance(address) {
-    for (var i = 0; i < ibcTokensGlobal.length; i++) {
-        const denom = ibcTokensGlobal[i]["denom"]
-        if (denom === address) {
-            if(denom.includes("erc20")) {
-                const contract = new ethers.Contract(denom.replace("erc20/", ""), erc20Abi, web3)
-                const decimals = await contract.decimals();
-                return ethers.utils.formatUnits(ibcTokensGlobal[i]["amount"], decimals)
-            }
+    if (ibcTokensGlobal.get(address)) {
+        if(address.includes("erc20")) {
+            const contract = new ethers.Contract(address.replace("erc20/", ""), erc20Abi, web3)
+            const decimals = await contract.decimals();
+            return ethers.utils.formatUnits(ibcTokensGlobal.get(address)["amount"], decimals)
         }
-        return ibcTokensGlobal[i]["amount"]
+        return ibcTokensGlobal.get(address)["amount"]
     }
     return 0;
 }
@@ -395,8 +384,8 @@ async function createGovProposalRegisterErc20(erc20Address) {
     const tx = await signAndBroadcastMsg(msg)
 }
 
-function addGovernanceModalIBC(id) {
-    const currentIBCToken = ibcTokensGlobal[id];
+function addGovernanceModalIBC(address) {
+    const currentIBCToken = ibcTokensGlobal.get(address);
     const ibcAddress = currentIBCToken["denom"];
     const ibcBaseDenom = currentIBCToken["base_denom"];
     const balance = currentIBCToken["amount"];
@@ -450,12 +439,12 @@ function addGovernanceModalIBC(id) {
                     "exponent": displayUnits
                 }
             ]
-        createGovProposalRegisterIBC(id, description, displayName, symbol, denomUnits);
+        createGovProposalRegisterIBC(address, description, displayName, symbol, denomUnits);
     });
 }
 
-function createGovProposalRegisterIBC(id, metadataDescription, completeName, displayName, symbol, denomUnits) {
-    const currentIBCToken = ibcTokensGlobal[id];
+function createGovProposalRegisterIBC(address, metadataDescription, completeName, displayName, symbol, denomUnits) {
+    const currentIBCToken = ibcTokensGlobal.get(address);
     const ibcDenom = currentIBCToken["denom"];
     const title = "Register IBC Token ("+displayName+") for Conversion";
     const titleToggle = "Toggle IBC Token ("+displayName+") for Conversion";
@@ -488,8 +477,8 @@ function convertErc20(address) {
     signAndBroadcastMsg(msg);
 }
 
-function convertIBC(id) {
-    const currentIBCToken = ibcTokensGlobal[id];
+function convertIBC(address) {
+    const currentIBCToken = ibcTokensGlobal.get(address);
     const ibcDenom = currentIBCToken["denom"];
     const balance = currentIBCToken["amount"];
     const msg = evmosjs.proto.createMsgConvertCoin(ibcDenom, balance, currentEvmAccount, currentAddress)
