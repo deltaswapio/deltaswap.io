@@ -646,7 +646,7 @@ async function signAndBroadcastMsg(msg) {
 
 async function broadcast(signedTx) {
 
-    const broadcastResult = await fetch("http://127.0.0.1:1317/cosmos/tx/v1beta1/txs", {
+    const broadcastResult = await fetch("https://rest.planq.network/cosmos/tx/v1beta1/txs", {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: evmosjs.provider.generatePostBodyBroadcast(signedTx)
