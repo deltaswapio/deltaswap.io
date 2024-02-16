@@ -16,7 +16,7 @@ const memo = "DeltaSwap.io Convert"
 const fee = {
     amount: '8000000000000000',
     denom: 'aplanq',
-    gas: '2000000',
+    gas: '4000000',
 }
 
 let txParams = {
