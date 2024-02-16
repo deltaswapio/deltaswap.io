@@ -337,17 +337,18 @@ function isGovProposalRunning(address) {
             return true
         }
     }
-    /*for(let i = 0; i < govProposals["pagination"].total; i++) {
+    for(let i = 0; i < govProposals["pagination"].total; i++) {
         const prop = govProposals["proposals"][i];
         if(prop["status"] == "PROPOSAL_STATUS_VOTING_PERIOD" || prop["status"] == "PROPOSAL_STATUS_DEPOSIT_PERIOD" ) {
-            if(prop["messages"][0]["content"]["erc20address"] && prop["messages"][0]["content"]["erc20address"] == address) {
+
+            if(prop["messages"][0]["content"]["@type"] == "/evmos.erc20.v1.RegisterERC20Proposal" && prop["messages"][0]["content"]["erc20address"] && prop["messages"][0]["content"]["erc20address"] == address) {
                 return true
             }
-            if(prop["messages"][0]["content"]["metadata"][0]["base"] && prop["messages"][0]["content"]["metadata"][0]["base"] == address) {
+            if(prop["messages"][0]["content"]["@type"] == "/evmos.erc20.v1.RegisterCoinProposal" && prop["messages"][0]["content"]["metadata"]["base"] && prop["messages"][0]["content"]["metadata"]["base"] == address) {
                 return true
             }
         }
-    }*/
+    }
     return false
 }
 
