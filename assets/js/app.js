@@ -337,7 +337,7 @@ function isGovProposalRunning(address) {
             return true
         }
     }
-    for(let i = 0; i < govProposals["pagination"].total; i++) {
+    /*for(let i = 0; i < govProposals["pagination"].total; i++) {
         const prop = govProposals["proposals"][i];
         if(prop["status"] == "PROPOSAL_STATUS_VOTING_PERIOD" || prop["status"] == "PROPOSAL_STATUS_DEPOSIT_PERIOD" ) {
             if(prop["messages"][0]["content"]["erc20address"] && prop["messages"][0]["content"]["erc20address"] == address) {
@@ -347,7 +347,7 @@ function isGovProposalRunning(address) {
                 return true
             }
         }
-    }
+    }*/
     return false
 }
 
