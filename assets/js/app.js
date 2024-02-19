@@ -606,7 +606,7 @@ async function createGovProposalRegisterIBC(address, metadataDescription, comple
 }
 
 async function convertErc20(address) {
-    const currentErc20Token = erc20Tokens.get(address);
+    const currentErc20Token = erc20Tokens.get(address.toLowerCase());
     const erc20Address = currentErc20Token["contractAddress"];
     const decimals = currentErc20Token["decimals"];
     const balance = currentErc20Token["balance"];
