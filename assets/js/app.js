@@ -243,7 +243,8 @@ async function updateConversionTable() {
         const currentPair = pairs["token_pairs"][i]
         const erc20Address = currentPair["erc20_address"];
         const ibcDenom = currentPair["denom"];
-        const erc20Balance = getErc20Balance(erc20Address)
+        const erc20Balance = getErc20Balance(erc20Address.toLowerCase())
+
         const ibcBalance = await fetchIBCBalance(ibcDenom)
 
         const cellErc20 = document.createElement("td");
