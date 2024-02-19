@@ -9,7 +9,7 @@ const chain = {
 }
 
 const evmosjs = window.evmosjs.Evmosjs
-const web3 = new ethers.providers.JsonRpcProvider("https://evm-rpc.planq.network:443", {chainId: chain.chainId, name:"Planq"},);
+const web3 = new ethers.providers.JsonRpcProvider("https://lb.nodies.app/v1/4c6d466fb4774d22bc7a032335996ab5", {chainId: chain.chainId, name:"Planq"},);
 
 const memo = "DeltaSwap.io Convert"
 
@@ -243,7 +243,7 @@ async function updateConversionTable() {
         const currentPair = pairs["token_pairs"][i]
         const erc20Address = currentPair["erc20_address"];
         const ibcDenom = currentPair["denom"];
-        const erc20Balance = getErc20Balance(erc20Address.toLowerCase())
+        const erc20Balance = await getErc20Balance(erc20Address.toLowerCase())
         const ibcBalance = await fetchIBCBalance(ibcDenom)
 
         const cellErc20 = document.createElement("td");
@@ -434,9 +434,12 @@ async function fetchBaseDenom(address) {
     return json["denom_trace"]["base_denom"]
 }
 
-function getErc20Balance(address) {
+async function getErc20Balance(address) {
     if (erc20Tokens.get(address)) {
-        return ethers.utils.formatUnits(erc20Tokens.get(address)["balance"], erc20Tokens.get(address)["decimals"]);
+        const contract = new ethers.Contract(address, erc20Abi, web3)
+        const balance = await contract.balanceOf(currentEvmAccount);
+        const decimals = await contract.decimals();
+        return ethers.utils.formatUnits(balance.toString(), decimals);
     }
     return 0;
 }
