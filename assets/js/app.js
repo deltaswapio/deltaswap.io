@@ -102,6 +102,11 @@ async function updateAccount() {
         showAccountErrorNotification();
     }
     currentEvmAccount = planqToEth(accounts[0]["address"]);
+
+    const evmAccount = document.querySelector("#evm-account")
+    const cosmosAccount = document.querySelector("#cosmos-account")
+    evmAccount.innerHTML = currentEvmAccount
+    cosmosAccount.innerHTML = currentAddress
     txParams.sequence = account.sequence;
     txParams.accountNumber = account.accountNumber;
     txParams.sender = account

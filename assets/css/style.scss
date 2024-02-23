@@ -9,6 +9,7 @@ body {
   background-position: bottom right;
   background-repeat: no-repeat;
   background-image: url(../bg.png), linear-gradient(135deg, rgba(14,58,107,1) 0%, rgba(22,26,35,1) 90%);
+  min-height: 100vh;
 }
 
 .logoimg {

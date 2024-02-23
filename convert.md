@@ -5,7 +5,15 @@ permalink: /convert
 ---
 
 ### Convert ERC20 tokens to and from IBC  
-<ul class="nav nav-tabs nav-justified" id="myTab" role="tablist">
+<div class="container">
+<div class="row">
+<div class="col-lg-6">
+<span>EVM Account: </span><span id="evm-account" class="text-lg-start">Not Connected</span></div>
+<div class="col-lg-6">
+<span>Cosmos Account: </span><span id="cosmos-account">Not Connected</span>
+</div>
+</div>
+<ul class="nav nav-tabs nav-justified pt-2" id="myTab" role="tablist">
   <li class="nav-item" role="presentation">
     <button class="nav-link active" id="conversion-tab" data-bs-toggle="tab" data-bs-target="#conversion" type="button" role="tab" aria-controls="home" aria-selected="true">Conversion</button>
   </li>
@@ -57,6 +65,8 @@ permalink: /convert
     </table>
  </div>
 </div>
+</div>
+
 ### Transfer tokens and NFTs across chains wrapped by Deltaswap with ease.  
 
 <img alt="Planq" src="./assets/chains/planq.png" class="planq" />
@@ -65,3 +75,5 @@ permalink: /convert
 Read the [docs](https://docs.planq.network/for-users/bridge).  
   
 If you want to integrate your chain, join our [Telegram Group](https://t.me/planqnetwork).  
+
+
