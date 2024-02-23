@@ -19,6 +19,8 @@ const fee = {
     gas: '8000000',
 }
 
+const timeout = 5000;
+
 let txParams = {
     chain: chain,
     memo: memo,
@@ -30,10 +32,12 @@ let txParams = {
 
 let erc20Tokens = new Map();
 let ibcTokensGlobal = new Map();
+let ibcChains = new Map();
 let currentAddress;
 let currentEvmAccount;
 let erc20Abi;
 let pairs;
+let ibcConnections = [];
 let currentModal;
 let govProposals;
 
@@ -52,6 +56,7 @@ window.onload = async () => {
     await window.wallet.enable(chain.cosmosChainId);
 
     pairs = await fetchTokenPairs();
+    const ibc = await updateIBCConnections();
     await fetchGovProposals();
 
 
@@ -68,29 +73,25 @@ window.onload = async () => {
     activateTooltips();
 
     window.addEventListener("leap_keystorechange", async () => {
-        // prepare the account
-        await updateAccount();
-        await updateErc20Tokens(currentEvmAccount);
-        await updateIBCTokens(currentAddress);
-
-        // construct conversion tables
-        await updateConversionTable();
-        updateErc20Table();
-        updateIBCTable();
+        await refetchAccount();
     })
 
     window.addEventListener("keplr_keystorechange", async () => {
-        // prepare the account
-        await updateAccount();
-        await updateErc20Tokens(currentEvmAccount);
-        await updateIBCTokens(currentAddress);
-
-        // construct conversion tables
-        await updateConversionTable();
-        updateErc20Table();
-        updateIBCTable();
+        await refetchAccount();
     })
 };
+
+async function refetchAccount() {
+    // prepare the account
+    await updateAccount();
+    await updateErc20Tokens(currentEvmAccount);
+    await updateIBCTokens(currentAddress);
+
+    // construct conversion tables
+    await updateConversionTable();
+    updateErc20Table();
+    updateIBCTable();
+}
 
 async function updateAccount() {
     const offlineSigner = window.wallet.getOfflineSigner(chain.cosmosChainId);
@@ -144,6 +145,9 @@ function updateErc20Table() {
     let rows = [];
     const erc20Iterator = erc20Tokens[Symbol.iterator]();
     for (const [address, erc20Token] of erc20Iterator) {
+        if(erc20Token["type"] === "ERC-20-Conversion") {
+            continue;
+        }
         const row = document.createElement("tr");
         const currentErc20Token = erc20Token;
         const erc20Address = currentErc20Token["contractAddress"];
@@ -202,7 +206,7 @@ function updateIBCTable() {
         const balance = currentIBCToken["amount"];
         const name = currentIBCToken["base_denom"];
 
-        const ibcBalance = ethers.utils.formatUnits(balance, decimals);
+        const ibcBalance = balance;
 
         const cellNameIBC = document.createElement("td");
         const cellNameTextIBC = document.createTextNode(name);
@@ -249,13 +253,16 @@ async function updateConversionTable() {
         const erc20Address = currentPair["erc20_address"];
         const ibcDenom = currentPair["denom"];
         const erc20Balance = await getErc20Balance(erc20Address.toLowerCase())
+        const erc20Decimals = await getErc20Decimals(erc20Address.toLowerCase())
+        const erc20Name = await getErc20Name(erc20Address.toLowerCase())
+        const erc20Symbol = await getErc20Symbol(erc20Address.toLowerCase())
         const ibcBalance = await fetchIBCBalance(ibcDenom)
 
         const cellErc20 = document.createElement("td");
         const cellTooltipErc20 = document.createElement("a")
-        const cellTextErc20 = document.createTextNode(truncate(erc20Address,15));
+        const cellTextErc20 = document.createTextNode(erc20Name + " (" + erc20Symbol + ")");
         const cellBalanceErc20 = document.createElement("td");
-        const cellBalanceTextErc20 = document.createTextNode(erc20Balance);
+        const cellBalanceTextErc20 = document.createTextNode(ethers.utils.formatUnits(erc20Balance,erc20Decimals));
 
 
         cellTooltipErc20.href = "https://evm.planq.network/address/" + erc20Address;
@@ -272,7 +279,7 @@ async function updateConversionTable() {
         const cellTextIBC = document.createTextNode(truncate(ibcDenom,15));
         const cellTooltipIBC = document.createElement("a");
         const cellBalanceIBC = document.createElement("td");
-        const cellBalanceTextIBC = document.createTextNode(ibcBalance);
+        const cellBalanceTextIBC = document.createTextNode(ethers.utils.formatUnits(ibcBalance,erc20Decimals));
 
         cellTooltipIBC.href = "#";
         cellTooltipIBC.dataset.bsToggle = "tooltip";
@@ -282,6 +289,7 @@ async function updateConversionTable() {
         cellIBC.appendChild(cellTooltipIBC);
         cellBalanceIBC.appendChild(cellBalanceTextIBC);
         cellBalanceIBC.appendChild(addConvertButton(ibcDenom, ibcBalance));
+        cellBalanceIBC.appendChild(addSendButton(ibcDenom, ibcBalance, erc20Decimals));
 
         row.appendChild(cellErc20);
         row.appendChild(cellBalanceErc20);
@@ -331,14 +339,38 @@ function addConvertButton(address, balance) {
     } else {
         convertButton.className = "btn btn-sm disabled ms-1"
     }
-    convertButton.textContent = "Convert";
+    //convertButton.textContent = "Convert";
+    convertButton.innerHTML = "<i class=\"bi bi-arrow-left-right\"></i>"
+    convertButton.title = "Convert"
     return convertButton
 }
 
+function addSendButton(address, balance, decimals) {
+    const sendButton = document.createElement("button");
+    const modalTarget = "#sendIbcModal"+ethers.utils.id(address)
+
+    if(balance > 0.0) {
+        addSendModalIBC(address, balance, decimals);
+        sendButton.className = "btn btn-sm ms-1"
+    } else {
+        sendButton.className = "btn btn-sm disabled ms-1"
+    }
+
+    sendButton.dataset.bsToggle = "modal"
+    sendButton.dataset.bsTarget = modalTarget;
+
+    sendButton.innerHTML = "<i class=\"bi bi-send\"></i>"
+    sendButton.title = "Send"
+    return sendButton
+}
+
 function isGovProposalRunning(address) {
+    if(address == "0x5EBCdf1De1781e8B5D41c016B0574aD53E2F6E1A".toLowerCase()) {
+        return true
+    }
     for (let i = 0; i < pairs["pagination"].total; i++) {
         const pair = pairs["token_pairs"][i];
-        if(pair["erc20_address"] == address || pair["denom"] == address) {
+        if(pair["erc20_address"].toLowerCase() == address || pair["denom"] == address) {
             return true
         }
     }
@@ -363,6 +395,19 @@ async function updateErc20Tokens(address) {
     const url = "https://evm.planq.network/api?module=account&action=tokenlist&address=" + address;
     const resp = await fetch(url);
     let json = await resp.json();
+
+    for(var i = 0; i < pairs.pagination.total; i++) {
+        const address = pairs["token_pairs"][i]["erc20_address"];
+        erc20Tokens.set(address.toLowerCase(),
+            {
+                balance: await getErc20Balance(address),
+                contractAddress: address,
+                decimals: await getErc20Decimals(address),
+                name: await getErc20Name(address),
+                symbol: await getErc20Symbol(address),
+                type:"ERC-20-Conversion"
+            })
+    }
 
     if (!json["result"] || json["result"].length < 1) {
         return
@@ -392,6 +437,43 @@ async function updateIBCTokens(address) {
         json["balances"][i]["base_denom"] = await fetchBaseDenom(json["balances"][i]["denom"]);
         ibcTokensGlobal.set(json["balances"][i]["denom"], json["balances"][i])
     }
+}
+
+async function updateIBCConnections() {
+    const url = "https://registry.ping.pub/_IBC/";
+    const resp = await fetch(url);
+    const json = await resp.json();
+    ibcChains.clear();
+    ibcConnections = [];
+
+    for(var i = 0; i < json.length; i++) {
+        const entry = json[i];
+        if(entry["name"].includes("planq")) {
+            let resp = await fetch(url+entry["name"]);
+            let json = await resp.json();
+            ibcConnections.push(json);
+
+            let destination = entry["name"].replace('planq-', '').replace('-planq', '');
+            let keplrDestination = destination;
+
+            switch (keplrDestination) {
+                case "kujira.json":
+                    keplrDestination = "kaiyo.json"
+                    break
+                case "gravitybridge.json":
+                    keplrDestination = "gravity-bridge.json"
+                    break
+                case "sei.json":
+                    keplrDestination = "pacific.json"
+                    break
+            }
+            resp = await fetch("https://raw.githubusercontent.com/chainapsis/keplr-chain-registry/main/cosmos/"+keplrDestination)
+            json = await resp.json();
+            ibcChains.set(destination.replace(".json",""), json)
+        }
+    }
+
+    return json
 }
 
 async function fetchTokenPairs() {
@@ -439,23 +521,29 @@ async function fetchBaseDenom(address) {
     return json["denom_trace"]["base_denom"]
 }
 
+async function getErc20Symbol(address) {
+    const contract = new ethers.Contract(address, erc20Abi, web3)
+    return await contract.symbol();
+}
+
+async function getErc20Name(address) {
+    const contract = new ethers.Contract(address, erc20Abi, web3)
+    return await contract.name();
+}
+
+async function getErc20Decimals(address) {
+    const contract = new ethers.Contract(address, erc20Abi, web3)
+    return await contract.decimals();
+}
+
 async function getErc20Balance(address) {
-    if (erc20Tokens.get(address)) {
-        const contract = new ethers.Contract(address, erc20Abi, web3)
-        const balance = await contract.balanceOf(currentEvmAccount);
-        const decimals = await contract.decimals();
-        return ethers.utils.formatUnits(balance.toString(), decimals);
-    }
-    return 0;
+    const contract = new ethers.Contract(address, erc20Abi, web3)
+    const balance = await contract.balanceOf(currentEvmAccount);
+    return balance.toString();
 }
 
 async function fetchIBCBalance(address) {
     if (ibcTokensGlobal.get(address)) {
-        if(address.includes("erc20")) {
-            const contract = new ethers.Contract(address.replace("erc20/", ""), erc20Abi, web3)
-            const decimals = await contract.decimals();
-            return ethers.utils.formatUnits(ibcTokensGlobal.get(address)["amount"], decimals)
-        }
         return ibcTokensGlobal.get(address)["amount"]
     }
     return 0;
@@ -504,6 +592,150 @@ async function createGovProposalRegisterErc20(erc20Address) {
     let msg = evmosjs.proto.createMsgRegisterERC20(title, description, [erc20Address.toLowerCase()]);
     msg = evmosjs.proto.createMsgSubmitProposal(evmosjs.proto.createAnyMessage(msg), "aplanq", "500000000000000000000", currentAddress);
     return await signAndBroadcastMsg(msg)
+}
+
+function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1);
+}
+
+function transformIBCDestination(id) {
+    const chain1 = ibcConnections[id]["chain_1"]["chain_name"];
+    const chain2 = ibcConnections[id]["chain_2"]["chain_name"];
+    return chain1 === "planq" ? chain2 : chain1;
+}
+
+function getSourceIBCChannel(id) {
+    const chain1 = ibcConnections[id]["chain_1"]["chain_name"];
+    const chain2 = ibcConnections[id]["chain_2"]["chain_name"];
+    let channel = 0;
+
+    if (chain1 === "planq") {
+        channel = ibcConnections[id]["channels"][0]["chain_1"]["channel_id"];
+    } else {
+        channel = ibcConnections[id]["channels"][0]["chain_2"]["channel_id"];
+    }
+    return channel;
+}
+
+function getDestinationIBCChannel(id) {
+    const chain1 = ibcConnections[id]["chain_1"]["chain_name"];
+    const chain2 = ibcConnections[id]["chain_2"]["chain_name"];
+    let channel = 0;
+
+    if (chain1 !== "planq") {
+        channel = ibcConnections[id]["channels"][0]["chain_1"]["channel_id"];
+    } else {
+        channel = ibcConnections[id]["channels"][0]["chain_2"]["channel_id"];
+    }
+    return channel;
+}
+
+async function getIBCRevision(id) {
+    const keplrChain = ibcChains.get(transformIBCDestination(id));
+    const rest = keplrChain["rest"];
+    const channel = getDestinationIBCChannel(id);
+    const url = rest + "ibc/core/channel/v1/channels/" + channel + "/ports/transfer";
+    const resp = await fetch(url);
+    let json = await resp.json();
+    return { revisionHeight: json["proof_height"]["revision_height"], revisionNumber: json["proof_height"]["revision_number"] }
+}
+
+function addSendModalIBC(address, balance, decimals) {
+    let ibcOptions = "";
+    let formattedBalance = ethers.utils.formatUnits(balance, decimals);
+    for(var i = 0; i < ibcConnections.length; i++) {
+        const destination = transformIBCDestination(i)
+        const img = ibcChains.get(destination.toLowerCase())["chainSymbolImageUrl"]
+        if(destination === "source") {
+            ibcOptions += "<option value=\""+i+"\" selected data-content=\"<img src='"+img+"' width='64' height='64' />\">"+capitalizeFirstLetter(destination)+"</option>";
+        } else {
+            ibcOptions += "<option value=\""+i+"\" data-content=\"<img src='"+img+"' width='64' height='64' />\">"+capitalizeFirstLetter(destination)+"</option>";
+        }
+    }
+
+    window.document.body.insertAdjacentHTML('beforeend','<div class="modal fade" id="sendIbcModal'+ethers.utils.id(address)+'" tabindex="-1" aria-labelledby="sendIbcModalLabel" aria-hidden="true">\n' +
+        '  <div class="modal-dialog">\n' +
+        '    <div class="modal-content">\n' +
+        '      <div class="modal-header">\n' +
+        '        <h5 class="modal-title" id="sendIbcModalLabel">Send Token via IBC</h5>\n' +
+        '        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>\n' +
+        '      </div>\n' +
+        '      <div class="modal-body">\n' +
+        '        <p>Fill out the form and click send to initiate the IBC transfer.</p>\n' +
+        '        <form id="sendIbcForm'+ethers.utils.id(address)+'">' +
+        '           <div class="mb-3">'+
+        '               <label for="baseDenom" class="form-label">Denom</label>\n'+
+        '               <input class="form-control" type="text" id="baseDenom" name="baseDenom" value="'+address+'" disabled="" />'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="baseDenomAmount" class="form-label">Amount</label>\n'+
+        '               <input class="form-control" type="text" id="baseDenomAmount" name="baseDenomAmount" value="0" />' +
+        '               <a href="#" class="small" id="formattedBalance'+ethers.utils.id(address)+'">Balance '+formattedBalance+'</a>'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="destinationChain" class="form-label">Destination Chain</label>\n'+
+        '               <select class="form-control" id="destinationChain" name="destinationChain">'+ibcOptions+'</select>'+
+        '           </div>'+
+        '           <div class="mb-3">'+
+        '               <label for="destinationAddress" class="form-label">Destination Address</label>\n'+
+        '               <div class="input-group">' +
+        '                   <input class="form-control" type="text" id="destinationAddress'+ethers.utils.id(address)+'" name="destinationAddress" />' +
+    '                       <button id="getDestinationAddressIBC'+ethers.utils.id(address)+'" class="btn btn-info">Get Address</button>' +
+        '               </div>'+
+        '           </div>'+
+        '        </form>\n' +
+        '      </div>\n' +
+        '      <div class="modal-footer">\n' +
+        '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>\n' +
+        '        <button type="button" id="sendIbc'+ethers.utils.id(address)+'" data-bs-dismiss="modal" class="btn btn-primary">Send</button>\n' +
+        '      </div>\n' +
+        '    </div>\n' +
+        '  </div>\n' +
+        '</div>')
+
+
+    const currentModal = "sendIbcModal"+ethers.utils.id(address);
+    const getBalanceLink = document.getElementById("formattedBalance"+ethers.utils.id(address));
+    getBalanceLink.addEventListener('click', function(event) {
+        event.preventDefault();
+        const sendForm = document.getElementById("sendIbcForm"+ethers.utils.id(address));
+        sendForm["1"].value = ethers.utils.formatUnits(balance, decimals);
+
+    });
+
+    const getDestinationAddressIBCButton = document.getElementById("getDestinationAddressIBC"+ethers.utils.id(address));
+    const getDestinationAddressIBCInput = document.getElementById("destinationAddress"+ethers.utils.id(address));
+
+    getDestinationAddressIBCButton.addEventListener('click', async function(event) {
+        event.preventDefault();
+        const sendForm = document.getElementById("sendIbcForm"+ethers.utils.id(address));
+        const selectedIBCConnection = sendForm["2"].value;
+
+        const keplrChain = ibcChains.get(transformIBCDestination(selectedIBCConnection));
+        await window.wallet.experimentalSuggestChain(keplrChain);
+        const offlineSigner = window.wallet.getOfflineSigner(keplrChain["chainId"]);
+        const accounts = await offlineSigner.getAccounts();
+        const destinationAddress = accounts[0]["address"];
+        getDestinationAddressIBCInput.innerText = destinationAddress
+        getDestinationAddressIBCInput.value = destinationAddress
+    });
+
+    const ibcSendButton = document.getElementById("sendIbc" + ethers.utils.id(address))
+    ibcSendButton.addEventListener('click', async function() {
+        const sendForm = document.getElementById("sendIbcForm"+ethers.utils.id(address));
+        console.log(sendForm)
+        const baseDenom = sendForm[0].value;
+        const baseDenomAmount = ethers.utils.parseUnits(sendForm[1].value, decimals).toString();
+        const destinationChain = sendForm[2].value;
+        const destinationAddress = sendForm[3].value;
+        const channel = getSourceIBCChannel(destinationChain);
+        const ibcRevision = await getIBCRevision(destinationChain);
+
+        const msg = evmosjs.proto.createIBCMsgTransfer("transfer", channel, baseDenomAmount, baseDenom, currentAddress, destinationAddress, ibcRevision.revisionNumber, ibcRevision.revisionHeight+100, 0)
+        const tx = await signAndBroadcastMsg(msg);
+        showTxBroadcastNotification(tx);
+        setTimeout(await refetchAccount,timeout);
+    });
 }
 
 function addGovernanceModalIBC(address) {
@@ -619,10 +851,11 @@ async function convertErc20(address) {
     const decimals = currentErc20Token["decimals"];
     const balance = currentErc20Token["balance"];
     const name = currentErc20Token["name"];
+
     const msg = evmosjs.proto.createMsgConvertERC20(erc20Address, balance, currentAddress, currentEvmAccount)
     const tx = await signAndBroadcastMsg(msg);
     showTxBroadcastNotification(tx);
-    await updateConversionTable();
+    setTimeout(await refetchAccount,timeout);
 }
 
 async function convertIBC(address) {
@@ -632,7 +865,7 @@ async function convertIBC(address) {
     const msg = evmosjs.proto.createMsgConvertCoin(ibcDenom, balance, currentEvmAccount, currentAddress)
     const tx = await signAndBroadcastMsg(msg);
     showTxBroadcastNotification(tx);
-    await updateConversionTable();
+    setTimeout(await refetchAccount,timeout);
 }
 
 async function signAndBroadcastMsg(msg) {
@@ -666,9 +899,12 @@ async function broadcast(signedTx) {
 
 function showTxBroadcastNotification(tx) {
     const txHash = tx["tx_response"]["txhash"];
+    const spinner = "<div class=\"spinner-border text-dark\" role=\"status\">\n" +
+    "  <span class=\"sr-only\"></span>\n" +
+    "</div>"
     let header = "Success";
     let body = '      <a href="https://explorer.planq.network/transactions/'+txHash+'" target="_blank">'+txHash+'</a>.\n';
-    let delay = 2000;
+    let delay = timeout;
     let color = "bg-success"
     if(tx["tx_response"]["raw_log"] != "[]") {
         header = "Error";
@@ -682,7 +918,7 @@ function showTxBroadcastNotification(tx) {
         '<div class="toast-container position-absolute p-3 top-0 end-0" >\n' +
         '  <div class="toast '+color+'" role="alert" aria-live="assertive" aria-atomic="true" id="tx'+txHash+'">\n' +
         '    <div class="toast-header">\n' +
-        '      <strong class="me-auto">'+header+'</strong>\n' +
+        '      <strong class="me-auto">'+spinner+header+'</strong>\n' +
         '      <small>now</small>\n' +
         '      <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>\n' +
         '    </div>\n' +
