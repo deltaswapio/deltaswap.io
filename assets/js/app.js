@@ -634,7 +634,7 @@ async function getIBCRevision(id) {
     const keplrChain = ibcChains.get(transformIBCDestination(id));
     const rest = keplrChain["rest"];
     const channel = getDestinationIBCChannel(id);
-    const url = rest + "ibc/core/channel/v1/channels/" + channel + "/ports/transfer";
+    const url = rest + "/ibc/core/channel/v1/channels/" + channel + "/ports/transfer";
     const resp = await fetch(url);
     let json = await resp.json();
     return { revisionHeight: json["proof_height"]["revision_height"], revisionNumber: json["proof_height"]["revision_number"] }
