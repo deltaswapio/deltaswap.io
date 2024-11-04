@@ -392,7 +392,7 @@ function isGovProposalRunning(address) {
 
 async function updateErc20Tokens(address) {
     erc20Tokens.clear();
-    const url = "https://evm.planq.network/api?module=account&action=tokenlist&address=" + address;
+    const url = "https://evm-api.planq.network/api?module=account&action=tokenlist&address=" + address;
     const resp = await fetch(url);
     let json = await resp.json();
 
