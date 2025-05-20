@@ -253,10 +253,15 @@ async function updateConversionTable() {
         const erc20Address = currentPair["erc20_address"];
         const ibcDenom = currentPair["denom"];
         const erc20Balance = await getErc20Balance(erc20Address.toLowerCase())
+        const ibcBalance = await fetchIBCBalance(ibcDenom)
+
+        if(erc20Balance == 0 && ibcBalance == 0) {
+            continue
+        }
+
         const erc20Decimals = await getErc20Decimals(erc20Address.toLowerCase())
         const erc20Name = await getErc20Name(erc20Address.toLowerCase())
         const erc20Symbol = await getErc20Symbol(erc20Address.toLowerCase())
-        const ibcBalance = await fetchIBCBalance(ibcDenom)
 
         const cellErc20 = document.createElement("td");
         const cellTooltipErc20 = document.createElement("a")
@@ -398,9 +403,13 @@ async function updateErc20Tokens(address) {
 
     for(var i = 0; i < pairs.pagination.total; i++) {
         const address = pairs["token_pairs"][i]["erc20_address"];
+        const erc20Balance = await getErc20Balance(address)
+        if(erc20Balance == 0) {
+            continue
+        }
         erc20Tokens.set(address.toLowerCase(),
             {
-                balance: await getErc20Balance(address),
+                balance: erc20Balance,
                 contractAddress: address,
                 decimals: await getErc20Decimals(address),
                 name: await getErc20Name(address),
