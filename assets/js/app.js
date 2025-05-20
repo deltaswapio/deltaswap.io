@@ -460,6 +460,9 @@ async function updateIBCConnections() {
                 case "kujira.json":
                     keplrDestination = "kaiyo.json"
                     break
+                case "kopi.json":
+                    keplrDestination = "luwak.json"
+                    break
                 case "gravitybridge.json":
                     keplrDestination = "gravity-bridge.json"
                     break
